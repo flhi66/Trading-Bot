@@ -18,13 +18,13 @@ bos_list = bos_choch_result.get("bos", [])
 choch_list = bos_choch_result.get("choch", [])
 
 def safe_direction(pt):
-    return pt.get("direction", "unknown")  # fallback if key missing
+    return pt.get("direction", "unknown")
 
+# === Step 4: Filter and count by direction ===
 bos_bullish = [pt for pt in bos_list if safe_direction(pt) == 'bullish']
 bos_bearish = [pt for pt in bos_list if safe_direction(pt) == 'bearish']
 choch_bullish = [pt for pt in choch_list if safe_direction(pt) == 'bullish']
 choch_bearish = [pt for pt in choch_list if safe_direction(pt) == 'bearish']
-
 
 # === Step 5: Print stats ===
 print(f"Trend: {trend}")
@@ -33,7 +33,7 @@ print(f"✅ BOS Bearish: {len(bos_bearish)}")
 print(f"✅ CHOCH Bullish: {len(choch_bullish)}")
 print(f"✅ CHOCH Bearish: {len(choch_bearish)}")
 
-# === Step 6: Combine and tag type for plotting ===
+# === Step 6: Combine and tag for plotting ===
 level_points = []
 
 for pt in bos_list:
@@ -44,11 +44,11 @@ for pt in choch_list:
     pt["type"] = "CHOCH"
     level_points.append(pt)
 
-# === Step 7: Plot all BOS and CHOCH together if available ===
+# === Step 7: Plot all BOS and CHOCH levels ===
 if level_points:
+    level_points = level_points[-10:]  # show only last 20 levels
     plot_levels(
         df=h1_data,
-        bos_choch_type="BOS & CHOCH",
         level_points=level_points,
         tf_name="1H"
     )

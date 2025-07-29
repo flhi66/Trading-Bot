@@ -1,29 +1,37 @@
 from core.data_loader import load_and_resample
-from core.structure_builder import get_structure
-from utils.trend_plotter import plot_trend
+from core.structure_builder import get_market_analysis
+from utils.trend_plotter import plot_market_structure
 
 # === Step 1: Load and resample data ===
 symbol = "XAUUSD_H1.csv"
 resampled = load_and_resample(f"data/{symbol}")
-h1_data = resampled["1H"]
+h1_data = resampled.get("1H")
 
-# === Step 2: Detect structure and trend ===
-structure, trend_info = get_structure(h1_data)
-
-# === Step 3: Normalize trend (handle dict or string)
-trend_direction = trend_info["trend"] if isinstance(trend_info, dict) and "trend" in trend_info else trend_info
-
-# === Step 4: Extract swing points ===
-swing_highs = [(pt['timestamp'], pt['price']) for pt in structure if pt['type'] in ['HH', 'LH']]
-swing_lows  = [(pt['timestamp'], pt['price']) for pt in structure if pt['type'] in ['LL', 'HL']]
-
-# === Step 5: Plot structure and trend ===
-plot_trend(
-    df=h1_data,
-    swing_highs=swing_highs,
-    swing_lows=swing_lows,
-    tf_name="1H",
-    trend_direction=trend_direction,
-    bos_choch_type=None,
-    level_points=None
-)
+if h1_data is None or h1_data.empty:
+    print(f"Could not load data for {symbol}. Exiting.")
+else:
+    # === Step 2: Get the complete market analysis on the full dataset ===
+    analysis = get_market_analysis(h1_data)
+    
+    # === Step 3: Select recent data for a clean plot ===
+    recent_data = h1_data.iloc[-150:]
+    
+    # === FIX: Filter the structure points to match the recent data's date range ===
+    start_date = recent_data.index[0]
+    end_date = recent_data.index[-1]
+    
+    recent_structure = [
+        p for p in analysis['structure'] 
+        if start_date <= p['timestamp'] <= end_date
+    ]
+    # === End of fix ===
+    
+    # === Step 4: Plot the market structure using the filtered data ===
+    plot_market_structure(
+        df=recent_data,
+        structure=recent_structure, # Pass the filtered structure
+        trend_direction=analysis['trend'],
+        symbol=symbol.split('_')[0],
+        tf_name="1H",
+        save_path=None
+    )
