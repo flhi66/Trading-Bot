@@ -15,6 +15,10 @@ DEFAULT_TIMEFRAMES = timeframes.copy()
 def load_and_resample(file: str | Path,
                       timeframes: dict[str, str] = DEFAULT_TIMEFRAMES,
                       days_back: int = 60) -> dict[str, pd.DataFrame]:
+    """
+    Loads OHLCV data from a CSV, resamples it to various timeframes,
+    and ensures column names are capitalized for plotting.
+    """
     path = Path(file).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(path)
@@ -23,19 +27,29 @@ def load_and_resample(file: str | Path,
     df = pd.read_csv(path, names=cols, header=None)
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
     df = (df.set_index("datetime")
-            .astype(float)[cols[1:]])  # enforce numeric types
+          .astype(float)[cols[1:]])  # enforce numeric types
 
     cutoff = df.index.max() - pd.Timedelta(days=days_back)
     df = df[df.index >= cutoff]
 
     return {
         k: (df.resample(freq)
-                .agg({
-                    "open": "first",
-                    "high": "max",
-                    "low": "min",
-                    "close": "last",
-                    "volume": "sum"
-                }).dropna())
+            .agg({
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "volume": "sum"
+            })
+            .dropna()
+            # --- FIX: Rename columns to the required capitalized format ---
+            .rename(columns={
+                'open': 'Open',
+                'high': 'High',
+                'low': 'Low',
+                'close': 'Close',
+                'volume': 'Volume'
+            })
+           )
         for k, freq in timeframes.items()
     }

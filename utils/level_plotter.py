@@ -1,49 +1,89 @@
-import matplotlib.pyplot as plt
+import pandas as pd
+import mplfinance as mpf
+from typing import List, Dict
 
-def plot_levels(df, level_points, tf_name="1H"):
-    time_col = df.index if "timestamp" not in df.columns else df["timestamp"]
+def plot_market_events(
+    df: pd.DataFrame,
+    events: List[Dict],
+    symbol: str = "Symbol",
+    tf_name: str = "Timeframe",
+    save_path: str = None
+):
+    """
+    Plots a candlestick chart with BOS/CHOCH events and non-overlapping labels for key levels.
+    """
+    required_columns = ['Open', 'High', 'Low', 'Close']
+    if not all(col in df.columns for col in required_columns) or df.empty:
+        print(f"❌ Plotting failed. DataFrame must not be empty and must contain: {required_columns}")
+        return
 
-    plt.figure(figsize=(14, 6))
-    plt.plot(time_col, df["close"], label="Price", linewidth=1.2)
+    mc = mpf.make_marketcolors(up='#26a69a', down='#ef5350', edge='inherit', wick='inherit')
+    style = mpf.make_mpf_style(marketcolors=mc, gridstyle='--', facecolor='#161A25', gridcolor='#474D59')
+    
+    fig, axes = mpf.plot(
+        df, type='candle', style=style,
+        title=f"{symbol} - {tf_name} | Market Events",
+        ylabel='Price', figsize=(16, 8), returnfig=True
+    )
+    ax = axes[0]
 
-    for level in level_points:
-        price = float(level["price"])
-        type_ = level.get("type", "").upper()
-        direction = level.get("direction", "").lower()
+    # --- New Label Management Logic ---
+    label_positions = []
+    y_range = df['High'].max() - df['Low'].min()
+    min_label_distance = y_range * 0.04 # Minimum vertical distance between labels
 
-        # === Main BOS/CHOCH line setup ===
-        if type_ == "BOS":
-            color = "green" if direction == "bullish" else "red"
-            label = f"BOS {direction.capitalize()} @ {price:.2f}"
-        elif type_ == "CHOCH":
-            color = "blue" if direction == "bullish" else "orange"
-            label = f"CHOCH {direction.capitalize()} @ {price:.2f}"
-        else:
-            color = "gray"
-            label = f"{type_} @ {price:.2f}"
+    def get_label_y_pos(target_y, existing_positions):
+        """Adjusts label Y-position to avoid overlap."""
+        new_y = target_y
+        for pos_y in existing_positions:
+            if abs(new_y - pos_y) < min_label_distance:
+                new_y = pos_y + min_label_distance # Stack the new label on top
+        return new_y
 
-        plt.axhline(price, linestyle="--", color=color, linewidth=1)
-        plt.text(df.index[-1], price, label, color=color, fontsize=8, va='bottom')
+    def draw_zone(level_name: str, level_data: Dict, zone_color: str):
+        if not level_data: return
+        price = level_data['price']
+        
+        # Adjust label position to prevent overlap
+        adjusted_y = get_label_y_pos(price, label_positions)
+        label_positions.append(adjusted_y)
 
-        # === Extra BOS entry zones (TJL1 & TJL2) ===
-        if "tjl1" in level and level["tjl1"]:
-            tjl1_price = float(level["tjl1"]["price"])
-            tjl1_time = level["tjl1"]["timestamp"]
-            plt.axhline(tjl1_price, linestyle="--", color="purple", linewidth=0.8)
-            plt.text(df.index[-1], tjl1_price, f"TJL1 @ {tjl1_price:.2f}", color="purple", fontsize=7, va='bottom')
-            plt.axvline(tjl1_time, color='purple', linestyle='--', linewidth=0.5)
+        # Draw the shaded zone
+        ax.fill_between(df.index, price * 0.999, price * 1.001, facecolor=zone_color, alpha=0.1)
+        ax.axhline(price, color=zone_color, linestyle=':', linewidth=0.7, alpha=0.5)
+        
+        # Add a line from the level price to the spaced-out label
+        ax.plot([df.index[-10], df.index[-1]], [price, adjusted_y], color=zone_color, linestyle='--', linewidth=0.6, alpha=0.7)
+        ax.text(df.index[-1], adjusted_y, f' {level_name} @ {price:.2f} ', color='white', ha='left', va='center',
+                bbox=dict(facecolor=zone_color, alpha=0.9, pad=1.5), fontsize=8)
 
-        if "tjl2" in level and level["tjl2"]:
-            tjl2_price = float(level["tjl2"]["price"])
-            tjl2_time = level["tjl2"]["timestamp"]
-            plt.axhline(tjl2_price, linestyle="--", color="magenta", linewidth=0.8)
-            plt.text(df.index[-1], tjl2_price, f"TJL2 @ {tjl2_price:.2f}", color="magenta", fontsize=7, va='bottom')
-            plt.axvline(tjl2_time, color='magenta', linestyle='--', linewidth=0.5)
+    # --- Draw Events and Levels ---
+    for event in events:
+        event_type, direction = event['type'], event['direction']
+        event_time, event_price = event['timestamp'], event['price']
 
-    plt.title(f"{tf_name} Chart with BOS & CHOCH Levels")
-    plt.xlabel("Time")
-    plt.ylabel("Price")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
+        color_map = {('BOS', 'Bullish'): '#26a69a', ('BOS', 'Bearish'): '#ef5350',
+                     ('CHOCH', 'Bullish'): '#2196F3', ('CHOCH', 'Bearish'): '#FFA726'}
+        border_color = color_map.get((event_type, direction), 'grey')
+        
+        ax.axvline(event_time, color=border_color, linestyle='--', linewidth=1.2)
+        ax.text(event_time, event_price, f' {event_type} ', color='white',
+                fontweight='bold', bbox=dict(facecolor=border_color, alpha=0.9, pad=1))
+        
+        # Collect and draw all levels associated with this event
+        levels_to_draw = []
+        if event_type == 'BOS':
+            levels_to_draw = [('TJL1', event.get('tjl1')), ('A+ Entry', event.get('tjl2_a_plus'))]
+        elif event_type == 'CHOCH':
+            levels_to_draw = [('SBR/RBS', event.get('sbr_level') or event.get('rbs_level')),
+                              ('QML (A+)', event.get('qml_a_plus'))]
+        
+        # Sort levels by price to prevent line crossings
+        sorted_levels = sorted([lvl for lvl in levels_to_draw if lvl[1]], key=lambda x: x[1]['price'])
+        for name, data in sorted_levels:
+            draw_zone(name, data, border_color)
+
+    if save_path:
+        fig.savefig(save_path, dpi=120, bbox_inches='tight')
+    else:
+        mpf.show()

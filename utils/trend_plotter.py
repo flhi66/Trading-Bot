@@ -19,10 +19,7 @@ def plot_market_structure(
         
     # --- 1. Define a professional-looking style ---
     mc = mpf.make_marketcolors(
-        up='tab:green', down='tab:red',
-        edge={'up':'#00B746', 'down':'#F03E3E'},
-        wick={'up':'#00B746', 'down':'#F03E3E'},
-        volume='inherit'
+        up='#26a69a', down='#ef5350', edge='inherit', wick='inherit', volume='inherit'
     )
     style = mpf.make_mpf_style(marketcolors=mc, gridstyle='--', facecolor='#161A25', gridcolor='#474D59')
 
@@ -54,8 +51,9 @@ def plot_market_structure(
         addplot=add_plots, alines=alines, figsize=(15, 7), returnfig=True
     )
 
-    # --- 5. Add HH/HL/LH/LL text labels with background boxes for visibility ---
-    y_range = df['high'].max() - df['low'].min()
+    # --- 5. Add HH/HL/LH/LL text labels manually for full control ---
+    # FIX: Changed column names to capitalized versions
+    y_range = df['High'].max() - df['Low'].min()
     offset = y_range * 0.03
 
     for point in sorted_structure:
@@ -63,21 +61,17 @@ def plot_market_structure(
         vertical_align = 'bottom' if point_type in ['HH', 'LH'] else 'top'
         y_pos = point['price'] + offset if vertical_align == 'bottom' else point['price'] - offset
         
-        # Define label color based on type
         label_color = '#26a69a' if point_type in ['HH', 'HL'] else '#ef5350'
-        
-        # Add a background box to the text to make it stand out
         bbox_props = dict(boxstyle='round,pad=0.2', facecolor=label_color, alpha=0.7)
         
         axes[0].text(
             point['timestamp'], y_pos, point_type,
-            ha='center', va='center',  # Center text inside the box
+            ha='center', va='center',
             fontsize=9, fontweight='bold',
             color='white',
-            bbox=bbox_props # Apply the background box
+            bbox=bbox_props
         )
 
-    # Add a clean text box for the trend in the top-left corner
     axes[0].text(0.02, 0.95, f"TREND: {trend_direction.upper()}",
                transform=axes[0].transAxes,
                fontweight='bold', fontsize=12,

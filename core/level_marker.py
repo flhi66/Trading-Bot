@@ -1,142 +1,100 @@
-from typing import Literal, TypedDict
+import pandas as pd
+from typing import List, Dict, Literal, Optional
 
-StructurePoint = dict  # Expected: {"timestamp": ..., "type": "HH"/"HL"/"LH"/"LL", "price": float}
+# --- Type Definitions for Clarity ---
+StructurePoint = Dict[str, pd.Timestamp | str | float]
 TrendType = Literal["uptrend", "downtrend", "sideways"]
+EventType = Literal["BOS", "CHOCH"]
 
-def detect_bos_choch(structure: list[StructurePoint], trend: TrendType):
-    bos_list = []
-    choch_list = []
+# --- Helper Function ---
+def find_last_swing(
+    structure: List[StructurePoint],
+    swing_type: Literal["HH", "HL", "LH", "LL"],
+    before_index: int
+) -> Optional[StructurePoint]:
+    """Finds the most recent occurrence of a given swing type before a certain index."""
+    for i in range(before_index - 1, -1, -1):
+        if structure[i]["type"] == swing_type:
+            return structure[i]
+    return None
 
-    prev_hh = None
-    prev_hl = None
-    prev_lh = None
-    prev_ll = None
-    bos_confirmed = False
-    last_bos_idx = None
-
-    for i in range(2, len(structure)):
-        current = structure[i]
-        previous = structure[i - 1]
-
-        # === FOR UPTREND ===
-        if trend == "uptrend":
-            if current["type"] == "HH":
-                if prev_hh and current["price"] > prev_hh["price"]:
-                    bos_confirmed = True
-                    last_bos_idx = i
-
-                    # TJL1: Last candle of previous HH (upper wick and 2% body buffer)
-                    tjl1 = {
-                        "timestamp": prev_hh["timestamp"],
-                        "price": prev_hh["price"] * 1.02  # Add buffer to upper wick
-                    }
-
-                    # TJL2: Last candle of previous HL
-                    tjl2 = {
-                        "timestamp": prev_hl["timestamp"],
-                        "price": prev_hl["price"] * 0.98  # Slight buffer to lower side
-                    } if prev_hl else None
-
-                    bos_list.append({
-                        "type": "BOS",
-                        "trend": "uptrend",
-                        "timestamp": current["timestamp"],
-                        "price": current["price"],
-                        "direction": "bullish",
-                        "tjl1": tjl1,
-                        "tjl2": tjl2
-                    })
-                prev_hh = current
-
-            elif current["type"] == "HL":
-                if bos_confirmed and prev_hl and current["price"] < prev_hl["price"]:
-                    qml_candle = structure[last_bos_idx - 1]
-                    choch_list.append({
-                        "type": "CHOCH",
-                        "direction": "bearish",
-                        "timestamp": current["timestamp"],
-                        "price": current["price"],
-                        "qml_level": {
-                            "timestamp": qml_candle["timestamp"],
-                            "price": qml_candle["price"]
-                        },
-                        "sbr_level": {
-                            "timestamp": prev_hl["timestamp"],
-                            "price": prev_hl["price"] * 0.98
-                        },
-                        "dt_level": {
-                            "timestamp": current["timestamp"],
-                            "price": current["price"]
-                        }
-                    })
-                    bos_confirmed = False
-                prev_hl = current
-
-        # === FOR DOWNTREND ===
-        elif trend == "downtrend":
-            if current["type"] == "LL":
-                if prev_ll and current["price"] < prev_ll["price"]:
-                    bos_confirmed = True
-                    last_bos_idx = i
-
-                    tjl1 = {
-                        "timestamp": prev_ll["timestamp"],
-                        "price": prev_ll["price"] * 0.98
-                    }
-
-                    tjl2 = {
-                        "timestamp": prev_lh["timestamp"],
-                        "price": prev_lh["price"] * 1.02
-                    } if prev_lh else None
-
-                    bos_list.append({
-                        "type": "BOS",
-                        "trend": "downtrend",
-                        "timestamp": current["timestamp"],
-                        "price": current["price"],
-                        "direction": "bearish",
-                        "tjl1": tjl1,
-                        "tjl2": tjl2
-                    })
-                prev_ll = current
-
-            elif current["type"] == "LH":
-                if bos_confirmed and prev_lh and current["price"] > prev_lh["price"]:
-                    qml_candle = structure[last_bos_idx - 1]
-                    choch_list.append({
-                        "type": "CHOCH",
-                        "direction": "bullish",
-                        "timestamp": current["timestamp"],
-                        "price": current["price"],
-                        "qml_level": {
-                            "timestamp": qml_candle["timestamp"],
-                            "price": qml_candle["price"]
-                        },
-                        "rbs_level": {
-                            "timestamp": prev_lh["timestamp"],
-                            "price": prev_lh["price"] * 1.02
-                        },
-                        "db_level": {
-                            "timestamp": current["timestamp"],
-                            "price": current["price"]
-                        }
-                    })
-                    bos_confirmed = False
-                prev_lh = current
-
-    return bos_list, choch_list
-
-
-def mark_bos_choch_levels(structure: list[StructurePoint], trend: TrendType) -> dict:
+# --- Main Detection Logic ---
+def get_market_events(structure: List[StructurePoint]) -> List[Dict]:
     """
-    Returns:
-        {
-            "bos": [ { type, trend, timestamp, price }, ... ],
-            "choch": [ { type, direction, timestamp, price, qml_level, rbs/sbr_level, db/dt_level }, ... ]
-        }
+    Analyzes the market structure to detect Break of Structure (BOS) and Change of Character (CHOCH) events.
     """
-    bos_list, choch_list = detect_bos_choch(structure, trend)
-    return {
-        "bos": bos_list,
-        "choch": choch_list
-    }
+    if len(structure) < 2:
+        return []
+
+    events = []
+    
+    for i in range(1, len(structure)):
+        current_swing = structure[i]
+        
+        # === 1. Bullish Break of Structure (BOS) ===
+        # A new HH breaks the previous HH.
+        if current_swing["type"] == "HH":
+            prev_hh = find_last_swing(structure, "HH", i)
+            if prev_hh and current_swing["price"] > prev_hh["price"]:
+                confirmed_low = find_last_swing(structure, "HL", i)
+                if confirmed_low:
+                    events.append({
+                        "type": "BOS",
+                        "direction": "Bullish",
+                        "timestamp": current_swing["timestamp"],
+                        "price": current_swing["price"],
+                        "tjl1": {"timestamp": prev_hh["timestamp"], "price": prev_hh["price"]},
+                        "tjl2_a_plus": {"timestamp": confirmed_low["timestamp"], "price": confirmed_low["price"]}
+                    })
+
+        # === 2. Bearish Break of Structure (BOS) ===
+        # A new LL breaks the previous LL.
+        elif current_swing["type"] == "LL":
+            prev_ll = find_last_swing(structure, "LL", i)
+            if prev_ll and current_swing["price"] < prev_ll["price"]:
+                confirmed_high = find_last_swing(structure, "LH", i)
+                if confirmed_high:
+                    events.append({
+                        "type": "BOS",
+                        "direction": "Bearish",
+                        "timestamp": current_swing["timestamp"],
+                        "price": current_swing["price"],
+                        "tjl1": {"timestamp": prev_ll["timestamp"], "price": prev_ll["price"]},
+                        "tjl2_a_plus": {"timestamp": confirmed_high["timestamp"], "price": confirmed_high["price"]}
+                    })
+
+        # === 3. Bearish Change of Character (CHOCH) ===
+        # A new LL breaks the last significant HL after an uptrend move.
+        if current_swing["type"] == "LL":
+            last_hl = find_last_swing(structure, "HL", i)
+            if last_hl and current_swing["price"] < last_hl["price"]:
+                # Check if this HL was part of a recent uptrend structure
+                qml_level = find_last_swing(structure, "HH", i)
+                if qml_level and qml_level["timestamp"] > last_hl["timestamp"]:
+                    events.append({
+                        "type": "CHOCH",
+                        "direction": "Bearish", # A break of bullish structure
+                        "timestamp": current_swing["timestamp"],
+                        "price": current_swing["price"],
+                        "sbr_level": {"timestamp": last_hl["timestamp"], "price": last_hl["price"]},
+                        "qml_a_plus": {"timestamp": qml_level["timestamp"], "price": qml_level["price"]},
+                    })
+
+        # === 4. Bullish Change of Character (CHOCH) ===
+        # A new HH breaks the last significant LH after a downtrend move.
+        elif current_swing["type"] == "HH":
+            last_lh = find_last_swing(structure, "LH", i)
+            if last_lh and current_swing["price"] > last_lh["price"]:
+                # Check if this LH was part of a recent downtrend structure
+                qml_level = find_last_swing(structure, "LL", i)
+                if qml_level and qml_level["timestamp"] > last_lh["timestamp"]:
+                    events.append({
+                        "type": "CHOCH",
+                        "direction": "Bullish", # A break of bearish structure
+                        "timestamp": current_swing["timestamp"],
+                        "price": current_swing["price"],
+                        "rbs_level": {"timestamp": last_lh["timestamp"], "price": last_lh["price"]},
+                        "qml_a_plus": {"timestamp": qml_level["timestamp"], "price": qml_level["price"]},
+                    })
+                    
+    return events
