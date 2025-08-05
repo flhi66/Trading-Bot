@@ -144,79 +144,117 @@ class EnhancedChartPlotter:
 
     def plot_event_levels(self, df: pd.DataFrame, events: List, symbol: str) -> go.Figure:
         """
-        Creates a ultra-clean and organized chart showing key trading levels.
-        MAJOR IMPROVEMENTS: Reduced visual clutter, better grouping, cleaner labels.
+        Creates a ultra-clean and organized chart showing key trading levels with proper buy/sell entry indications.
+        IMPROVED: Better level detection logic, cleaner visualization, proper entry signals.
         """
-        fig = self._create_base_chart(df, f"{symbol} - Key Trading Levels", symbol)
+        fig = self._create_base_chart(df, f"{symbol} - Smart Money Concept Levels", symbol)
 
-        # Collect and organize all levels first
-        all_levels = {}
-        level_categories = {'BOS_Bullish': [], 'BOS_Bearish': [], 'CHOCH_Bullish': [], 'CHOCH_Bearish': [], 'Entry': []}
+        # Enhanced level categorization with better logic
+        level_categories = {
+            'BOS_Bullish': [], 'BOS_Bearish': [], 
+            'CHOCH_Bullish': [], 'CHOCH_Bearish': [], 
+            'Entry_Buy': [], 'Entry_Sell': []
+        }
         
+        # Process events with improved logic
         for event in events:
-            # Categorize broken levels
+            event_color = self.color_scheme.get((event.event_type.value, event.direction), 'grey')
+            
+            # Categorize main structure levels
             category = f"{event.event_type.value}_{event.direction}"
             if category in level_categories:
                 level_categories[category].append({
                     'price': event.broken_level['price'],
                     'timestamp': event.broken_level['timestamp'],
                     'name': event.broken_level['name'],
-                    'color': self.color_scheme.get((event.event_type.value, event.direction), 'grey'),
-                    'event_type': event.event_type.value
+                    'color': event_color,
+                    'event_type': event.event_type.value,
+                    'direction': event.direction,
+                    'confidence': getattr(event, 'confidence', 0.5)
                 })
             
-            # Add entry levels
+            # Process entry levels with proper buy/sell categorization
             a_plus_entry = event.context.get('a_plus_entry')
             if a_plus_entry:
-                level_categories['Entry'].append({
+                entry_category = 'Entry_Buy' if event.direction == 'Bullish' else 'Entry_Sell'
+                level_categories[entry_category].append({
                     'price': a_plus_entry['price'],
                     'timestamp': a_plus_entry['timestamp'],
                     'name': a_plus_entry['name'],
-                    'color': self.color_scheme.get((event.event_type.value, event.direction), 'grey'),
-                    'event_type': 'Entry'
+                    'color': event_color,
+                    'event_type': 'Entry',
+                    'direction': event.direction,
+                    'confidence': getattr(event, 'confidence', 0.5),
+                    'trade_type': 'BUY' if event.direction == 'Bullish' else 'SELL'
                 })
 
-        def draw_clean_level_group(levels: List, line_style: str, line_width: int, show_zones: bool = False):
-            """Draw a group of levels with consistent styling"""
-            # Remove duplicate levels by price (keep the most recent)
-            unique_levels = {}
+        def draw_enhanced_level_group(levels: List, line_style: str, line_width: int, show_zones: bool = False, is_entry: bool = False):
+            """Enhanced level drawing with better deduplication and styling"""
+            if not levels:
+                return
+                
+            # Advanced deduplication - group by price ranges
+            price_groups = {}
             for level in levels:
-                price_key = round(level['price'], 2)
-                if price_key not in unique_levels or level['timestamp'] > unique_levels[price_key]['timestamp']:
-                    unique_levels[price_key] = level
+                price_key = round(level['price'] / 5) * 5  # Group by 5-point ranges
+                if price_key not in price_groups:
+                    price_groups[price_key] = []
+                price_groups[price_key].append(level)
             
-            for level in unique_levels.values():
+            # Keep highest confidence level from each group
+            unique_levels = []
+            for group in price_groups.values():
+                best_level = max(group, key=lambda x: x['confidence'])
+                unique_levels.append(best_level)
+            
+            for level in unique_levels:
                 price = level['price']
                 timestamp = level['timestamp']
                 color = level['color']
                 name = level['name']
                 event_type = level['event_type']
+                direction = level['direction']
+                
+                # Enhanced line styling based on importance
+                line_opacity = 0.9 if event_type in ['BOS', 'CHOCH'] else 0.7
+                actual_line_width = line_width + (1 if level['confidence'] > 0.7 else 0)
                 
                 # Draw horizontal level line
                 fig.add_hline(
                     y=price,
                     line_dash=line_style,
                     line_color=color,
-                    line_width=line_width,
-                    opacity=0.85
+                    line_width=actual_line_width,
+                    opacity=line_opacity
                 )
                 
-                # Add subtle zone only for major levels
-                if show_zones:
-                    zone_height = abs(price) * 0.0005
+                # Add zones for high-confidence levels only
+                if show_zones and level['confidence'] > 0.6:
+                    zone_height = abs(price) * 0.0004  # Smaller zones
                     fig.add_hrect(
                         y0=price - zone_height,
                         y1=price + zone_height,
                         fillcolor=color,
-                        opacity=0.08,
+                        opacity=0.06,
                         layer="below",
                         line_width=0
                     )
                 
-                # Add single marker at level origin
-                marker_symbol = 'square' if event_type in ['BOS', 'CHOCH'] else 'circle'
-                if event_type == 'CHOCH':
-                    marker_symbol = 'diamond'
+                # Enhanced markers with proper entry indication
+                if is_entry:
+                    # Special markers for entry levels
+                    if level.get('trade_type') == 'BUY':
+                        marker_symbol = 'triangle-up'
+                        marker_color = '#00ff88'  # Bright green for buy
+                    else:
+                        marker_symbol = 'triangle-down'
+                        marker_color = '#ff4444'  # Bright red for sell
+                    marker_size = 10
+                else:
+                    # Standard markers for structure levels
+                    marker_symbol = 'diamond' if event_type == 'CHOCH' else 'square'
+                    marker_color = color
+                    marker_size = 8
                 
                 fig.add_trace(go.Scatter(
                     x=[timestamp],
@@ -224,46 +262,68 @@ class EnhancedChartPlotter:
                     mode='markers',
                     marker=dict(
                         symbol=marker_symbol,
-                        size=8,
-                        color=color,
-                        line=dict(width=1.5, color='white'),
-                        opacity=0.9
+                        size=marker_size,
+                        color=marker_color,
+                        line=dict(width=2, color='white'),
+                        opacity=0.95
                     ),
                     name=f"{event_type} - {name}",
-                    hovertemplate=f"<b>{event_type}</b><br>{name}<br>Price: {price:.2f}<br>Time: {timestamp}<extra></extra>",
+                    hovertemplate=(
+                        f"<b>{event_type} {direction}</b><br>"
+                        f"{name}<br>"
+                        f"Price: {price:.2f}<br>"
+                        f"Confidence: {level['confidence']:.1%}<br>"
+                        f"Time: {timestamp}"
+                        f"<br><b>{level.get('trade_type', '')}</b>" if is_entry else "" +
+                        "<extra></extra>"
+                    ),
                     showlegend=False
                 ))
 
-        # Draw level groups with different styling
-        draw_clean_level_group(level_categories['BOS_Bullish'], "dash", 2, True)
-        draw_clean_level_group(level_categories['BOS_Bearish'], "dash", 2, True)
-        draw_clean_level_group(level_categories['CHOCH_Bullish'], "dot", 2, False)
-        draw_clean_level_group(level_categories['CHOCH_Bearish'], "dot", 2, False)
-        draw_clean_level_group(level_categories['Entry'], "dashdot", 1, False)
+        # Draw levels with enhanced styling
+        draw_enhanced_level_group(level_categories['BOS_Bullish'], "dash", 2, True)
+        draw_enhanced_level_group(level_categories['BOS_Bearish'], "dash", 2, True)
+        draw_enhanced_level_group(level_categories['CHOCH_Bullish'], "dot", 2, False)
+        draw_enhanced_level_group(level_categories['CHOCH_Bearish'], "dot", 2, False)
+        draw_enhanced_level_group(level_categories['Entry_Buy'], "dashdot", 2, False, True)
+        draw_enhanced_level_group(level_categories['Entry_Sell'], "dashdot", 2, False, True)
 
-        # Create organized right-side labels (only for significant levels)
-        significant_levels = []
-        for category, levels in level_categories.items():
-            if levels:
-                # Group levels by price ranges to avoid overlapping labels
-                levels_by_price = sorted(levels, key=lambda x: x['price'])
-                for i, level in enumerate(levels_by_price):
-                    # Only show labels for levels that aren't too close to others
-                    show_label = True
-                    for other in levels_by_price[i+1:i+3]:  # Check next 2 levels
-                        if abs(level['price'] - other['price']) < abs(level['price']) * 0.003:  # Less than 0.3%
-                            show_label = False
-                            break
-                    
-                    if show_label:
-                        significant_levels.append(level)
-
-        # Sort significant levels by price for clean right-side labeling
-        significant_levels.sort(key=lambda x: x['price'], reverse=True)
+        # Smart label management - only show most important levels
+        all_significant_levels = []
         
-        # Add clean, non-overlapping labels on the right
-        for i, level in enumerate(significant_levels[:15]):  # Limit to top 15 levels
-            label_text = f"{level['name']} @ {level['price']:.2f}"
+        # Prioritize levels by importance
+        importance_weights = {'BOS': 3, 'CHOCH': 2, 'Entry': 1}
+        
+        for category, levels in level_categories.items():
+            for level in levels:
+                importance = importance_weights.get(level['event_type'], 0) * level['confidence']
+                level['importance'] = importance
+                all_significant_levels.append(level)
+        
+        # Sort by importance and remove overlapping levels
+        all_significant_levels.sort(key=lambda x: x['importance'], reverse=True)
+        
+        final_levels = []
+        for level in all_significant_levels[:12]:  # Top 12 most important
+            # Check if too close to existing levels
+            too_close = False
+            for existing in final_levels:
+                if abs(level['price'] - existing['price']) < abs(level['price']) * 0.005:  # 0.5% threshold
+                    too_close = True
+                    break
+            
+            if not too_close:
+                final_levels.append(level)
+        
+        # Add clean, organized labels
+        for level in final_levels:
+            # Determine label content based on level type
+            if level['event_type'] == 'Entry':
+                label_text = f"🎯 {level['trade_type']} @ {level['price']:.2f}"
+                label_color = '#00ff88' if level['trade_type'] == 'BUY' else '#ff4444'
+            else:
+                label_text = f"{level['name']} @ {level['price']:.2f}"
+                label_color = level['color']
             
             fig.add_annotation(
                 x=df.index[-1],
@@ -271,53 +331,57 @@ class EnhancedChartPlotter:
                 text=f" {label_text} ",
                 showarrow=False,
                 xanchor="left",
-                xshift=10,
-                font=dict(color='white', size=8, family="Arial"),
-                bgcolor=level['color'],
+                xshift=12,
+                font=dict(color='white', size=8, family="Arial", weight="bold"),
+                bgcolor=label_color,
                 borderpad=3,
-                bordercolor='rgba(255,255,255,0.6)',
+                bordercolor='rgba(255,255,255,0.8)',
                 borderwidth=1,
-                opacity=0.9
+                opacity=0.95
             )
 
-        # Minimal, clean legend
-        legend_text = """<b>Key Levels</b>
-━━ BOS Levels    ┅┅ CHOCH Levels    ━┅━ Entry Levels
-⬛ Major Levels    ◆ CHOCH    ● Entry Points"""
+        # Enhanced legend with entry signals
+        legend_text = """<b>📊 Smart Money Levels</b>
+━━ BOS (Break of Structure)    ┅┅ CHOCH (Change of Character)
+━┅━ Entry Levels    🎯 Trade Signals
+
+<b>Markers:</b> ⬛ BOS  ◆ CHOCH  ▲ BUY  ▼ SELL"""
 
         fig.add_annotation(
-            x=df.index[5],
-            y=df['High'].max() * 0.999,
+            x=df.index[3],
+            y=df['High'].max() * 0.998,
             text=legend_text,
             showarrow=False,
             xanchor="left",
             yanchor="top",
             font=dict(color='white', size=9, family="Arial"),
-            bgcolor='rgba(0,0,0,0.8)',
-            bordercolor='rgba(255,255,255,0.4)',
+            bgcolor='rgba(0,0,0,0.85)',
+            bordercolor='rgba(255,255,255,0.5)',
             borderwidth=1,
-            borderpad=6
+            borderpad=8
         )
 
-        # Compact statistics
+        # Enhanced statistics with entry signals
         total_bos = len(level_categories['BOS_Bullish']) + len(level_categories['BOS_Bearish'])
         total_choch = len(level_categories['CHOCH_Bullish']) + len(level_categories['CHOCH_Bearish'])
-        total_entry = len(level_categories['Entry'])
+        total_buy_entries = len(level_categories['Entry_Buy'])
+        total_sell_entries = len(level_categories['Entry_Sell'])
         
-        stats_text = f"BOS: {total_bos} | CHOCH: {total_choch} | Entry: {total_entry}"
+        stats_text = f"""Structure: BOS {total_bos} | CHOCH {total_choch}
+Entries: 📈 {total_buy_entries} BUY | 📉 {total_sell_entries} SELL"""
 
         fig.add_annotation(
-            x=df.index[-5],
-            y=df['Low'].min() * 1.001,
+            x=df.index[-3],
+            y=df['Low'].min() * 1.002,
             text=stats_text,
             showarrow=False,
             xanchor="right",
             yanchor="bottom",
             font=dict(color='white', size=8, family="monospace"),
-            bgcolor='rgba(0,0,0,0.7)',
-            bordercolor='rgba(255,255,255,0.3)',
+            bgcolor='rgba(0,0,0,0.8)',
+            bordercolor='rgba(255,255,255,0.4)',
             borderwidth=1,
-            borderpad=4
+            borderpad=5
         )
 
         return fig
