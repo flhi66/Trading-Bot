@@ -21,10 +21,22 @@ else:
     all_events = analyzer.get_market_events(structure)
     print(f"Found {len(all_events)} total events with confidence >= {analyzer.confidence_threshold}")
 
-    # === Step 4: Generate and show both plots ===
+    # === Step 4: Generate and show three plots ===
     if all_events:
         print("\n✅ Generating plots...")
         plotter = EnhancedChartPlotter()
+        
+        # Debug: Check what levels are being detected
+        qml_levels = plotter._detect_qml_levels(h1_data, all_events)
+        aplus_levels = plotter._extract_aplus_levels(all_events)
+        
+        print(f"🔍 Debug: Detected {len(qml_levels)} QML levels")
+        print(f"🔍 Debug: Detected {len(aplus_levels)} A+ levels")
+        
+        if aplus_levels:
+            print("📊 A+ Levels found:")
+            for aplus in aplus_levels:
+                print(f"  - {aplus['name']} @ ${aplus['price']:.2f} ({aplus['entry_type']})")
         
         # --- Plot 1: Show only the event detections ---
         fig_detections = plotter.plot_event_detections(
@@ -35,14 +47,23 @@ else:
         print("-> Displaying Chart 1: Event Detections")
         fig_detections.show()
 
-        # --- Plot 2: Show only the resulting trading levels ---
-        fig_levels = plotter.plot_event_levels(
+        # --- Plot 2: Show all levels (TJL, QML, A+) with horizontal lines ---
+        fig_all_levels = plotter.plot_all_levels(
             df=h1_data,
             events=all_events,
             symbol=symbol.split('_')[0]
         )
-        print("-> Displaying Chart 2: Key Trading Levels")
-        fig_levels.show()
+        print("-> Displaying Chart 2: All Trading Levels")
+        fig_all_levels.show()
+
+        # --- Plot 3: Show only entries (triangles) without horizontal lines ---
+        fig_entries_only = plotter.plot_entries_only(
+            df=h1_data,
+            events=all_events,
+            symbol=symbol.split('_')[0]
+        )
+        print("-> Displaying Chart 3: Entry Points Only")
+        fig_entries_only.show()
 
     else:
         print("\n✅ Analysis complete. No high-confidence market events to plot.")
