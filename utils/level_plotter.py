@@ -303,177 +303,102 @@ class EnhancedChartPlotter:
 
     def plot_all_levels(self, df: pd.DataFrame, events: List, symbol: str) -> go.Figure:
         """
-        Creates a chart showing all levels (TJL, QML, A+) with horizontal lines.
+        Creates a chart showing all levels (TJL, QML, A+) with minimal markers and hover effects.
         This is Chart 2 - All Trading Levels.
         """
         fig = self._create_base_chart(df, f"{symbol} - All Trading Levels", symbol)
 
-        # Extract all level types
-        qml_levels = self._detect_qml_levels(df, events)
-        aplus_levels = self._extract_aplus_levels(events)
+        # Extract and organize all available levels
+        all_levels = []
         
-        # Organize all levels
-        level_categories = {
-            'QML_Bullish': [], 'QML_Bearish': [],
-            'A+_Bullish': [], 'A+_Bearish': [],
-            'TJL_Bullish': [], 'TJL_Bearish': []
-        }
-        
-        # Add QML levels
-        for qml in qml_levels:
-            category = f"QML_{qml['direction']}"
-            level_categories[category].append({
-                'price': qml['price'],
-                'timestamp': qml['timestamp'],
-                'name': qml['name'],
-                'color': self.color_scheme.get(('QML', qml['direction']), '#9C27B0'),
-                'level_type': 'QML',
-                'direction': qml['direction'],
-                'confidence': qml['strength'],
-                'importance': self.level_importance.get('QML', 3),
-                'test_count': qml['test_count'],
-                'rejection_strength': qml['strength']
-            })
-        
-        # Add A+ levels
-        for aplus in aplus_levels:
-            category = f"A+_{aplus['direction']}"
-            level_categories[category].append({
-                'price': aplus['price'],
-                'timestamp': aplus['timestamp'],
-                'name': aplus['name'],
-                'color': self.color_scheme.get(('A+', aplus['direction']), '#4CAF50'),
-                'level_type': 'A+',
-                'direction': aplus['direction'],
-                'confidence': aplus['confidence'],
-                'importance': self.level_importance.get('A+', 2),
-                'entry_type': aplus['entry_type'],
-                'risk_reward': aplus['risk_reward'],
-                'parent_event': aplus['parent_event']
-            })
-
         # Add TJL levels (from broken levels in events)
         for event in events:
             broken_level = event.broken_level
-            category = f"TJL_{event.direction}"
-            level_categories[category].append({
+            all_levels.append({
                 'price': broken_level['price'],
                 'timestamp': broken_level['timestamp'],
                 'name': broken_level['name'],
-                'color': self.color_scheme.get((event.event_type.value, event.direction), '#666666'),
+                'color': self.color_scheme.get((event.event_type.value, event.direction), '#888888'),
                 'level_type': 'TJL',
                 'direction': event.direction,
                 'confidence': getattr(event, 'confidence', 0.7),
-                'importance': self.level_importance.get('TJL', 4),
-                'parent_event': event.event_type.value
+                'importance': self.level_importance.get('Entry', 4),
+                'parent_event': event.event_type.value,
+                'symbol': 'circle',
+                'size': 12
             })
-
-        def draw_all_levels(levels: List, level_type: str):
-            """Draw all levels with horizontal lines"""
-            if not levels:
-                return
-                
-            # Deduplication for cleaner visualization
-            unique_levels = self._deduplicate_levels_advanced(levels, threshold=0.002)
-            
-            for level in unique_levels:
-                price = level['price']
-                timestamp = level['timestamp']
-                color = level['color']
-                confidence = level['confidence']
-                
-                if level_type == 'QML':
-                    # QML Styling
-                    line_style = "longdashdot"
-                    line_width = 3
-                    line_opacity = 0.85
-                    zone_opacity = 0.12
-                    zone_height = abs(price) * 0.0008
+        
+        # Add A+ levels (from context entries)
+        for event in events:
+            if hasattr(event, 'context') and event.context:
+                a_plus_entry = event.context.get('a_plus_entry')
+                if a_plus_entry:
+                    # Determine level type based on name
+                    entry_name = a_plus_entry.get('name', '')
                     
-                    marker_symbol = 'star'
-                    marker_size = 16
-                    marker_line_width = 3
-                    marker_line_color = '#FFD700'  # Gold outline
-                    
-                elif level_type == 'A+':
-                    # A+ Styling
-                    line_style = "solid"
-                    line_width = 4
-                    line_opacity = 0.95
-                    zone_opacity = 0.15
-                    zone_height = abs(price) * 0.0006
-                    
-                    if level.get('entry_type') == 'BUY':
-                        marker_symbol = 'triangle-up'
-                        color = '#00E676'  # Bright green
+                    if 'QML' in entry_name:
+                        level_type = 'QML'
+                        symbol = 'star'
+                        size = 16
+                        color = self.color_scheme.get(('QML', event.direction), '#9C27B0')
+                    elif 'TJL' in entry_name:
+                        level_type = 'A+'
+                        symbol = 'triangle-up' if event.direction == 'Bullish' else 'triangle-down'
+                        size = 14
+                        color = '#00E676' if event.direction == 'Bullish' else '#FF1744'
                     else:
-                        marker_symbol = 'triangle-down'
-                        color = '#FF1744'  # Bright red
+                        level_type = 'A+'
+                        symbol = 'triangle-up' if event.direction == 'Bullish' else 'triangle-down'
+                        size = 14
+                        color = '#00E676' if event.direction == 'Bullish' else '#FF1744'
                     
-                    marker_size = 15
-                    marker_line_width = 3
-                    marker_line_color = 'white'
-                    
-                elif level_type == 'TJL':
-                    # TJL Styling
-                    line_style = "dash"
-                    line_width = 2
-                    line_opacity = 0.7
-                    zone_opacity = 0.08
-                    zone_height = abs(price) * 0.0005
-                    
-                    marker_symbol = 'circle'
-                    marker_size = 12
-                    marker_line_width = 2
-                    marker_line_color = color
-                
-                # Draw horizontal level line
-                fig.add_hline(
-                    y=price,
-                    line_dash=line_style,
-                    line_color=color,
-                    line_width=line_width,
-                    opacity=line_opacity
-                )
-                
-                # Add confidence zones
-                if confidence > 0.6:
-                    fig.add_hrect(
-                        y0=price - zone_height,
-                        y1=price + zone_height,
-                        fillcolor=color,
-                        opacity=zone_opacity,
-                        layer="below",
-                        line_width=0
-                    )
-                
-                # Add markers
-                fig.add_trace(go.Scatter(
-                    x=[timestamp],
-                    y=[price],
-                    mode='markers',
-                    marker=dict(
-                        symbol=marker_symbol,
-                        size=marker_size,
-                        color=color,
-                        line=dict(width=marker_line_width, color=marker_line_color),
-                        opacity=0.95
-                    ),
-                    name=f"{level_type} {level['direction']}",
-                    hovertemplate=self._get_professional_hover_template(level),
-                    showlegend=False
-                ))
+                    all_levels.append({
+                        'price': a_plus_entry['price'],
+                        'timestamp': a_plus_entry['timestamp'],
+                        'name': entry_name,
+                        'color': color,
+                        'level_type': level_type,
+                        'direction': event.direction,
+                        'confidence': getattr(event, 'confidence', 0.7),
+                        'importance': self.level_importance.get(level_type, 3),
+                        'parent_event': event.event_type.value,
+                        'symbol': symbol,
+                        'size': size,
+                        'entry_type': 'BUY' if event.direction == 'Bullish' else 'SELL'
+                    })
 
-        # Draw all level types
-        draw_all_levels(level_categories['QML_Bullish'] + level_categories['QML_Bearish'], 'QML')
-        draw_all_levels(level_categories['A+_Bullish'] + level_categories['A+_Bearish'], 'A+')
-        draw_all_levels(level_categories['TJL_Bullish'] + level_categories['TJL_Bearish'], 'TJL')
+        # Remove duplicates based on price proximity
+        unique_levels = self._deduplicate_levels_advanced(all_levels, threshold=0.001)
+        
+        # Draw minimal markers with hover effects (NO horizontal lines)
+        for level in unique_levels:
+            price = level['price']
+            timestamp = level['timestamp']
+            color = level['color']
+            confidence = level['confidence']
+            
+            # Add only markers with hover info
+            fig.add_trace(go.Scatter(
+                x=[timestamp],
+                y=[price],
+                mode='markers',
+                marker=dict(
+                    symbol=level['symbol'],
+                    size=level['size'],
+                    color=color,
+                    line=dict(width=2, color='white'),
+                    opacity=0.85
+                ),
+                name=f"{level['level_type']} {level['direction']}",
+                hovertemplate=self._get_level_hover_template(level),
+                showlegend=False
+            ))
 
-        # Add comprehensive legend
-        self._add_comprehensive_legend(fig, df)
+        # Add minimal legend
+        self._add_minimal_legend(fig, df)
         
         # Add statistics
-        self._add_all_levels_statistics(fig, df, qml_levels, aplus_levels, events)
+        self._add_minimal_statistics(fig, df, all_levels)
 
         return fig
 
@@ -608,6 +533,69 @@ class EnhancedChartPlotter:
         template += f"Parent Event: {entry.get('parent_event', 'N/A')}<br>"
         template += f"Time: {entry['timestamp']}<extra></extra>"
         return template
+
+    def _get_level_hover_template(self, level: Dict) -> str:
+        """Hover template for all levels on Chart 2"""
+        template = f"<b>{level['level_type']} Level</b><br>"
+        template += f"<b>Name: {level['name']}</b><br>"
+        template += f"<b>Price: ${level['price']:.2f}</b><br>"
+        template += f"Direction: {level['direction']}<br>"
+        template += f"Confidence: {level['confidence']:.0%}<br>"
+        template += f"Parent Event: {level.get('parent_event', 'N/A')}<br>"
+        if 'entry_type' in level:
+            template += f"Entry Type: {level['entry_type']}<br>"
+        template += f"Time: {level['timestamp']}<extra></extra>"
+        return template
+
+    def _add_minimal_legend(self, fig: go.Figure, df: pd.DataFrame):
+        """Minimal legend for Chart 2"""
+        legend_text = """<b>📊 All Trading Levels</b>
+
+<b>TJL</b> - Take Level (broken structure) ⭕
+<b>QML</b> - Quasimodo (failed breakouts) ⭐
+<b>A+</b> - Premium entry opportunities ▲▼
+
+<i>Minimal markers only - hover for details</i>"""
+
+        fig.add_annotation(
+            x=df.index[8],
+            y=df['High'].max() * 0.996,
+            text=legend_text,
+            showarrow=False,
+            xanchor="left",
+            yanchor="top",
+            font=dict(color='white', size=10, family="Arial"),
+            bgcolor='rgba(15,15,15,0.95)',
+            bordercolor='rgba(255,255,255,0.3)',
+            borderwidth=1,
+            borderpad=12
+        )
+
+    def _add_minimal_statistics(self, fig: go.Figure, df: pd.DataFrame, all_levels: List):
+        """Minimal statistics for Chart 2"""
+        tjl_count = len([l for l in all_levels if l['level_type'] == 'TJL'])
+        qml_count = len([l for l in all_levels if l['level_type'] == 'QML'])
+        aplus_count = len([l for l in all_levels if l['level_type'] == 'A+'])
+        
+        stats_text = f"""<b>Level Summary</b>
+TJL Levels: {tjl_count}
+QML Levels: {qml_count}
+A+ Levels: {aplus_count}
+Total: {len(all_levels)}"""
+
+        fig.add_annotation(
+            x=df.index[-8],
+            y=df['Low'].min() * 1.004,
+            text=stats_text,
+            showarrow=False,
+            xanchor="right",
+            yanchor="bottom",
+            font=dict(color='white', size=9, family="Arial"),
+            bgcolor='rgba(15,15,15,0.9)',
+            bordercolor='rgba(255,255,255,0.3)',
+            borderwidth=1,
+            borderpad=10
+        )
 
     def _add_comprehensive_legend(self, fig: go.Figure, df: pd.DataFrame):
         """Comprehensive legend for all level types"""

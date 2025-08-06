@@ -30,13 +30,29 @@ else:
         qml_levels = plotter._detect_qml_levels(h1_data, all_events)
         aplus_levels = plotter._extract_aplus_levels(all_events)
         
-        print(f"🔍 Debug: Detected {len(qml_levels)} QML levels")
-        print(f"🔍 Debug: Detected {len(aplus_levels)} A+ levels")
+        # Count different level types from Chart 2
+        chart2_levels = []
+        for event in all_events:
+            # TJL levels
+            chart2_levels.append(('TJL', event.broken_level['name'], event.broken_level['price']))
+            
+            # A+ levels from context
+            if hasattr(event, 'context') and event.context:
+                a_plus_entry = event.context.get('a_plus_entry')
+                if a_plus_entry:
+                    entry_name = a_plus_entry.get('name', '')
+                    level_type = 'QML' if 'QML' in entry_name else 'A+'
+                    chart2_levels.append((level_type, entry_name, a_plus_entry['price']))
         
-        if aplus_levels:
-            print("📊 A+ Levels found:")
-            for aplus in aplus_levels:
-                print(f"  - {aplus['name']} @ ${aplus['price']:.2f} ({aplus['entry_type']})")
+        print(f"🔍 Debug: Chart 2 will show {len(chart2_levels)} total levels:")
+        
+        # Group by type
+        from collections import Counter
+        type_counts = Counter([level[0] for level in chart2_levels])
+        for level_type, count in type_counts.items():
+            print(f"  - {level_type}: {count} levels")
+        
+        print(f"🔍 Debug: Chart 3 will show {len(aplus_levels)} A+ entry points")
         
         # --- Plot 1: Show only the event detections ---
         fig_detections = plotter.plot_event_detections(
