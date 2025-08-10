@@ -55,16 +55,36 @@ class MarketStructureAnalyzer:
         return swings
 
     def _get_trend_state(self, structure: List[StructurePoint], current_index: int) -> Literal["uptrend", "downtrend", "sideways"]:
-        """Enhanced trend detection with better pattern recognition"""
+        """Enhanced trend detection with better pattern recognition and CHOCH responsiveness"""
         if current_index < 3:
             return "sideways"
         
         # Look at recent swings - use a more flexible lookback
-        lookback = min(6, current_index)  # Increased lookback for better trend detection
+        lookback = min(8, current_index)  # Increased lookback for better trend detection
         recent_swings = structure[max(0, current_index - lookback):current_index]
         
         if len(recent_swings) < 2:
             return "sideways"
+        
+        # Check for recent CHOCH events that should override trend calculation
+        # Look for recent LL breaking below HL (bearish CHOCH) or HH breaking above LH (bullish CHOCH)
+        for i in range(len(recent_swings) - 1, 0, -1):
+            current_swing = recent_swings[i]
+            prev_swing = recent_swings[i-1]
+            
+            # Bearish CHOCH: LL breaking below HL
+            if (current_swing.swing_type == SwingType.LL and 
+                prev_swing.swing_type == SwingType.HL and 
+                current_swing.price < prev_swing.price):
+                # Recent bearish CHOCH detected - trend should be downtrend
+                return "downtrend"
+            
+            # Bullish CHOCH: HH breaking above LH
+            if (current_swing.swing_type == SwingType.HH and 
+                prev_swing.swing_type == SwingType.LH and 
+                current_swing.price > prev_swing.price):
+                # Recent bullish CHOCH detected - trend should be uptrend
+                return "uptrend"
         
         # Count swing patterns in recent history
         hh_count = sum(1 for s in recent_swings if s.swing_type == SwingType.HH)
