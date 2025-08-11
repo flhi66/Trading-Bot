@@ -8,22 +8,26 @@ import os
 
 # === Step 1: Load data ===
 symbol = "XAUUSD_H1.csv"
-resampled = load_and_resample(f"data/{symbol}")
+# Use 365 days of data instead of 60 for better structure analysis
+resampled = load_and_resample(f"data/{symbol}", days_back=60)
 h1_data = resampled.get("1H")
 
 if h1_data is None or h1_data.empty:
     print(f"❌ ERROR: No data loaded for the '1H' timeframe.")
 else:
+    print(f"📊 Loaded {len(h1_data)} H1 candles from {h1_data.index.min()} to {h1_data.index.max()}")
+    
     # === Step 2: Get base market structure ===
-    analysis = get_market_analysis(h1_data)
+    # Use prominence_factor=2.5 for BOS/CHOCH detection (more sensitive than 7.5)
+    analysis = get_market_analysis(h1_data, prominence_factor=2.5)
     structure = analysis['structure']
     
     print(f"📊 Total structure points: {len(structure)}")
     
-    # Debug: Show structure points around the May 25 - June 1 period
-    print("\n🔍 Debug: Structure points around May 25 - June 1:")
-    target_start = pd.Timestamp('2025-05-25', tz='UTC')
-    target_end = pd.Timestamp('2025-06-01', tz='UTC')
+    # Debug: Show structure points around the May 25 - June 1 period (2024)
+    print("\n🔍 Debug: Structure points around May 25 - June 1, 2024:")
+    target_start = pd.Timestamp('2024-05-25', tz='UTC')
+    target_end = pd.Timestamp('2024-06-01', tz='UTC')
     
     relevant_points = []
     for i, point in enumerate(structure):
@@ -31,54 +35,46 @@ else:
         if target_start <= timestamp <= target_end:
             relevant_points.append((i, point))
     
-    for idx, point in relevant_points[:10]:  # Show first 10 relevant points
-        print(f"  Index {idx}: {point['type']} @ {point['price']:.2f} - {point['timestamp']}")
+    if relevant_points:
+        print(f"  Found {len(relevant_points)} relevant points:")
+        for idx, point in relevant_points[:10]:  # Show first 10 relevant points
+            print(f"    Index {idx}: {point['type']} @ {point['price']:.2f} - {point['timestamp']}")
+    else:
+        print("  No structure points found in this period")
     
-    # Debug: Check trend states around the key period
-    print("\n🔍 Debug: Trend states around May 29 (Index 8 - HH @ 3330.78):")
-    analyzer_debug = MarketStructureAnalyzer(confidence_threshold=0.1)
+    # Debug: Show recent structure points for context
+    print(f"\n🔍 Debug: Recent structure points (last 20):")
+    for i, point in enumerate(structure[-20:]):
+        print(f"  Index {len(structure)-20+i}: {point['type']} @ {point['price']:.2f} - {point['timestamp']}")
     
-    # Convert structure to the format expected by the analyzer
-    structure_objects = []
-    for i, point in enumerate(structure):
-        from core.smart_money_concepts import StructurePoint, SwingType
-        structure_objects.append(StructurePoint(
-            timestamp=pd.Timestamp(point['timestamp']),
-            price=point['price'],
-            swing_type=SwingType(point['type'])
-        ))
+    # Debug: Check if we have enough structure points for BOS detection
+    if len(structure) < 4:
+        print(f"\n⚠️  WARNING: Only {len(structure)} structure points found. BOS/CHOCH detection requires at least 4 points.")
+        print("   This might be due to the prominence_factor being too restrictive.")
+        print("   Consider using more data or adjusting the prominence_factor in structure_builder.py")
+    else:
+        print(f"\n✅ Sufficient structure points ({len(structure)}) for BOS/CHOCH detection.")
     
-    # Check trend states around index 8
-    for i in range(6, 11):  # Check indices 6-10
-        if i < len(structure_objects):
+    # Debug: Check trend states around recent key points
+    if len(structure) >= 10:
+        print(f"\n🔍 Debug: Trend states around recent key points:")
+        analyzer_debug = MarketStructureAnalyzer(confidence_threshold=0.1)
+        
+        # Convert structure to the format expected by the analyzer
+        structure_objects = []
+        for i, point in enumerate(structure):
+            from core.smart_money_concepts import StructurePoint, SwingType
+            structure_objects.append(StructurePoint(
+                timestamp=pd.Timestamp(point['timestamp']),
+                price=point['price'],
+                swing_type=SwingType(point['type'])
+            ))
+        
+        # Check trend states around recent indices
+        for i in range(max(0, len(structure_objects)-10), len(structure_objects)):
             trend_state = analyzer_debug._get_trend_state(structure_objects, i)
             point = structure_objects[i]
             print(f"  Index {i}: {point.swing_type.value} @ {point.price:.2f} - Trend: {trend_state}")
-            
-            # Special check for index 8 (the HH that should trigger bullish CHOCH)
-            if i == 8:
-                print(f"    🔍 Index 8 Analysis:")
-                print(f"      Current: {point.swing_type.value} @ {point.price:.2f}")
-                
-                # Find the most recent LH (resistance level in downtrend)
-                last_lh = analyzer_debug._find_last_swing(structure_objects, SwingType.LH, i)
-                if last_lh:
-                    print(f"      Last LH: {last_lh.swing_type.value} @ {last_lh.price:.2f}")
-                    print(f"      Price comparison: {point.price:.2f} > {last_lh.price:.2f} = {point.price > last_lh.price}")
-                    
-                    # Find QML level (previous LL)
-                    qml_level = analyzer_debug._find_last_swing(structure_objects, SwingType.LL, i)
-                    if qml_level:
-                        print(f"      QML Level: {qml_level.swing_type.value} @ {qml_level.price:.2f}")
-                        
-                        # Check if this should be a CHOCH
-                        if point.price > last_lh.price:
-                            print(f"      ✅ SHOULD BE BULLISH CHOCH: HH @ {point.price:.2f} broke above LH @ {last_lh.price:.2f}")
-                            print(f"      This indicates trend change from bearish to bullish!")
-                        else:
-                            print(f"      ❌ Not a CHOCH: Price didn't break above resistance")
-                else:
-                    print(f"      ❌ No LH found before index {i}")
 
     # === Step 3: Use the analyzer to detect events ===
     analyzer = MarketStructureAnalyzer(confidence_threshold=0.5)
