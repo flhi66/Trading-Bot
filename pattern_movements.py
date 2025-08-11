@@ -1,6 +1,70 @@
 import pandas as pd
-import mplfinance as mpf
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from core.pivot_detector import find_pivots
+
+def apply_base_chart_style(fig: go.Figure, df: pd.DataFrame, title: str, price_col: str = 'close', height: int = 700):
+    """
+    Applies a consistent, professional style to a Plotly chart object.
+
+    Args:
+        fig: The Plotly Figure object to be styled.
+        df: The DataFrame used for the chart (to set the price range).
+        title: The title for the chart.
+        price_col: The name of the price column in the DataFrame.
+        height: The height of the chart in pixels.
+    """
+    # === 1. Update Layout (The main styling block) ===
+    fig.update_layout(
+        title=dict(
+            text=title,
+            x=0.5,
+            font=dict(size=22, color='#2E3440')
+        ),
+        template='plotly_white',
+        hovermode='x unified',
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor='rgba(255,255,255,0.9)',
+            bordercolor='rgba(0,0,0,0.1)',
+            borderwidth=1
+        ),
+        plot_bgcolor='rgba(255,255,255,0.95)',
+        paper_bgcolor='white',
+        font=dict(family="Arial, sans-serif", size=12, color='#2E3440'),
+        margin=dict(l=50, r=50, t=100, b=50),
+        height=height,
+        xaxis_rangeslider_visible=False # Hide the range slider for a cleaner look
+    )
+
+    # === 2. Update Axes Styles ===
+    # Style x-axis
+    fig.update_xaxes(
+        gridcolor='rgba(0,0,0,0.1)',
+        showgrid=True
+    )
+
+    # Style y-axis
+    price_range = df[price_col].max() - df[price_col].min()
+    price_padding = price_range * 0.05
+    price_min = df[price_col].min() - price_padding
+    price_max = df[price_col].max() + price_padding
+    
+    fig.update_yaxes(
+        title_text="Price",
+        gridcolor='rgba(0,0,0,0.1)',
+        showgrid=True,
+        zeroline=False,
+        range=[price_min, price_max]
+    )
+
+    return fig
 
 # --- 1. Load and Prepare Data ---
 # Use XAUUSD H1 data from your data directory with proper column handling
@@ -13,7 +77,7 @@ try:
     ohlc["datetime"] = pd.to_datetime(ohlc["datetime"], utc=True)
     ohlc = ohlc.set_index("datetime").astype(float)
     
-    # Rename columns to capitalized format for mplfinance
+    # Rename columns to capitalized format for pivot detector compatibility
     ohlc = ohlc.rename(columns={
         'open': 'Open',
         'high': 'High', 
@@ -38,40 +102,72 @@ pivots = find_pivots(df, prominence=0.001)
 # Create the list of points for the white dashed zig-zag line
 zigzag_points = list(zip(pivots.index, pivots['price']))
 
-# Create the data for the cyan pivot markers - ensure alignment with main dataframe
-pivot_markers = pd.Series(index=df.index, dtype=float)  # Create series with same index as df
-pivot_markers.loc[pivots.index] = pivots['price']  # Fill only the pivot points
-pivot_markers = pivot_markers.fillna(float('nan'))  # Fill missing values with NaN
+# --- 4. Create Plotly Chart ---
+# Create single plot for price chart
+fig = go.Figure()
 
-ap = [
-    mpf.make_addplot(pivot_markers, type='scatter', color='cyan', marker='o', markersize=25)
-]
-
-# --- 4. Define the Chart Style ---
-# This style closely matches the one in your image
-mc = mpf.make_marketcolors(up='#26a69a', down='#ef5350', edge='inherit', wick='inherit')
-style = mpf.make_mpf_style(
-    base_mpf_style='nightclouds', 
-    marketcolors=mc,
-    gridstyle='--',
-    gridcolor='#404040'  # Fixed: using hex color instead of rgba
+# Add candlestick chart
+fig.add_trace(
+    go.Candlestick(
+        x=df.index,
+        open=df['Open'],
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close'],
+        name='XAUUSD H1',
+        increasing_line_color='#26a69a',
+        decreasing_line_color='#ef5350',
+        increasing_fillcolor='#26a69a',
+        decreasing_fillcolor='#ef5350'
+    )
 )
 
-# --- 5. Create and Show the Chart ---
-fig, axes = mpf.plot(
-    df,
-    type='candle',
-    style=style,
-    title='XAUUSD H1 - Price Movements with Pivot Points',
-    ylabel='Price (USD)',
-    figsize=(12, 5),
-    alines=dict(alines=zigzag_points, colors='white', linestyle='--', linewidths=1.2),
-    addplot=ap,
-    returnfig=True
+# Add pivot point markers
+fig.add_trace(
+    go.Scatter(
+        x=pivots.index,
+        y=pivots['price'],
+        mode='markers',
+        marker=dict(
+            color='red',
+            size=8,
+            symbol='circle'
+        ),
+        name='Pivot Points',
+        showlegend=True
+    )
 )
 
-# Customize axis labels to match the minimalist look
-axes[0].set_xlabel('')
-axes[0].legend(['XAUUSD_H1']) # Updated legend for XAUUSD
+# Add zigzag line connecting pivot points
+if len(zigzag_points) > 1:
+    zigzag_x = [point[0] for point in zigzag_points]
+    zigzag_y = [point[1] for point in zigzag_points]
+    
+    fig.add_trace(
+        go.Scatter(
+            x=zigzag_x,
+            y=zigzag_y,
+            mode='lines',
+            line=dict(
+                color='black',
+                width=1.2,
+                dash='dash'
+            ),
+            name='Zigzag Pattern',
+            showlegend=True
+        )
+    )
 
-mpf.show()
+
+
+# Apply the professional styling
+fig = apply_base_chart_style(
+    fig=fig,
+    df=df,
+    title='XAUUSD H1 - Price Movements with Pivot Points (Last 60 Days)',
+    price_col='Close',
+    height=700
+)
+
+# Show the chart
+fig.show(renderer="browser")
