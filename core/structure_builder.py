@@ -13,7 +13,7 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     return tr.rolling(window=period).mean()
 
-def detect_swing_points_scipy(df: pd.DataFrame, prominence_factor: float = 2.0) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def detect_swing_points_scipy(df: pd.DataFrame, prominence_factor: float = 7.5) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Detects swing points using scipy, now with capitalized column names.
     """
@@ -35,7 +35,7 @@ def detect_swing_points_scipy(df: pd.DataFrame, prominence_factor: float = 2.0) 
     
     return swing_highs, swing_lows
 
-def build_market_structure(df: pd.DataFrame, prominence_factor: float = 2.0) -> List[Dict]:
+def build_market_structure(df: pd.DataFrame, prominence_factor: float = 7.5) -> List[Dict]:
     """
     Builds and classifies the market structure (HH, LH, HL, LL) chronologically.
     """
@@ -72,7 +72,7 @@ def build_market_structure(df: pd.DataFrame, prominence_factor: float = 2.0) -> 
             
     return structure
 
-def get_market_analysis(df: pd.DataFrame, prominence_factor: float = 2.0, trend_window: int = 4) -> Dict:
+def get_market_analysis(df: pd.DataFrame, prominence_factor: float = 7.5, trend_window: int = 4) -> Dict:
     """
     Main function to get market structure and confirm the current trend.
     """
