@@ -629,22 +629,22 @@ Total: {len(all_levels)}"""
         """Legend for entry-only chart"""
         legend_text = """<b>🎯 Entry Points Only</b>
 
-<b>A+ Entries</b> - Premium entry opportunities
+<b>A+ Entries</b>
 🟢 BUY signals (triangle-up)
 🔴 SELL signals (triangle-down)
 
-<i>No horizontal lines - only entry markers</i>"""
+<i>Only entry markers</i>"""
 
         fig.add_annotation(
-            x=df.index[8],
-            y=df['High'].max() * 0.996,
+            x=df.index[-8],
+            y=df['High'].max(),
             text=legend_text,
             showarrow=False,
-            xanchor="left",
+            xanchor="right",
             yanchor="top",
-            font=dict(color='white', size=10, family="Arial"),
-            bgcolor='rgba(15,15,15,0.95)',
-            bordercolor='rgba(255,255,255,0.3)',
+            font=dict(color='black', size=10, family="Arial"),
+            bgcolor='rgba(255,255,255,0.8)',
+            bordercolor='rgba(200,200,200,0.5)',
             borderwidth=1,
             borderpad=12
         )
