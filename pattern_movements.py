@@ -91,12 +91,36 @@ except Exception as e:
     print(f"Failed to load XAUUSD data: {e}")
     exit()
 
-# Filter for a recent date range (last 7 days of data)
-df = ohlc.tail(168)  # 168 hours = 7 days
+# Filter for a recent date range (last 10 days of data)
+df = ohlc.tail(240)  # 240 hours = 10 days
 
-# --- 2. Detect Pivot Points ---
+# --- 2. Detect Pivot Points and Trends ---
 # Adjusted prominence for XAUUSD (gold typically has smaller price movements)
 pivots = find_pivots(df, prominence=0.001)
+
+# Detect trend direction based on pivot points
+def detect_trend(pivots_df):
+    """Detect overall trend direction based on pivot points"""
+    if len(pivots_df) < 2:
+        return "Neutral"
+    
+    # Get first and last pivot points
+    first_pivot = pivots_df.iloc[0]['price']
+    last_pivot = pivots_df.iloc[-1]['price']
+    
+    # Calculate trend
+    price_change = last_pivot - first_pivot
+    if price_change > 0:
+        return "Uptrend"
+    elif price_change < 0:
+        return "Downtrend"
+    else:
+        return "Sideways"
+
+# Detect trend
+trend = detect_trend(pivots)
+print(f"Detected Trend: {trend}")
+print(f"Number of Pivot Points: {len(pivots)}")
 
 # --- 3. Prepare for Plotting ---
 # Create the list of points for the white dashed zig-zag line
@@ -158,13 +182,58 @@ if len(zigzag_points) > 1:
         )
     )
 
+# Add trend line (linear regression through pivot points)
+if len(zigzag_points) > 1:
+    # Calculate linear regression for trend line
+    x_numeric = np.arange(len(zigzag_x))
+    z = np.polyfit(x_numeric, zigzag_y, 1)
+    p = np.poly1d(z)
+    trend_line_y = p(x_numeric)
+    
+    fig.add_trace(
+        go.Scatter(
+            x=zigzag_x,
+            y=trend_line_y,
+            mode='lines',
+            line=dict(
+                color='blue',
+                width=2,
+                dash='solid'
+            ),
+            name=f'Trend Line ({trend})',
+            showlegend=True
+        )
+    )
+
+# Add price movement tracking line (connects all pivot points with smooth line)
+if len(zigzag_points) > 1:
+    fig.add_trace(
+        go.Scatter(
+            x=zigzag_x,
+            y=zigzag_y,
+            mode='lines+markers',
+            line=dict(
+                color='purple',
+                width=1.5,
+                dash='solid'
+            ),
+            marker=dict(
+                color='purple',
+                size=6,
+                symbol='circle'
+            ),
+            name='Price Movement Track',
+            showlegend=True
+        )
+    )
+
 
 
 # Apply the professional styling
 fig = apply_base_chart_style(
     fig=fig,
     df=df,
-    title='XAUUSD H1 - Price Movements with Pivot Points (Last 60 Days)',
+    title=f'XAUUSD H1 - Price Movements with Trend Analysis ({trend}) - Last 10 Days',
     price_col='Close',
     height=700
 )
