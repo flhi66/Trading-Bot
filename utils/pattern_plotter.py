@@ -38,7 +38,6 @@ class PatternPlotter:
             rows=2, cols=1,
             shared_xaxes=True,
             vertical_spacing=0.03,
-            subplot_titles=(title, "Volume Confirmation"),
             row_heights=[0.7, 0.3]
         )
         
@@ -688,7 +687,7 @@ class PatternPlotter:
         # Create subplots
         fig = make_subplots(
             rows=2, cols=1,
-            subplot_titles=("Price Data with Pattern Matches", "Target Pattern vs Matches"),
+
             vertical_spacing=0.1,
             row_heights=[0.6, 0.4]
         )
@@ -1013,7 +1012,7 @@ class PatternPlotter:
             rows=4, cols=1,
             shared_xaxes=True,
             vertical_spacing=0.03,
-            subplot_titles=(title, "Volume Confirmation", "RSI Divergence", "Pivot Strength"),
+
             row_heights=[0.5, 0.2, 0.2, 0.1]
         )
         
