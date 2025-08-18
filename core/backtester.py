@@ -17,6 +17,7 @@ import os
 warnings.filterwarnings('ignore')
 
 from core.data_loader import load_and_resample
+from core.risk_manager import RiskManager
 from core.structure_builder import get_market_analysis
 from core.smart_money_concepts import MarketStructureAnalyzer, StructurePoint, SwingType, MarketEvent
 
@@ -80,30 +81,17 @@ class BOSCHOCHBacktester:
         self.trades: List[Trade] = []
         self.equity_curve = []
         self.open_trades = []
+        self.risk_manager = RiskManager(risk_per_trade=risk_per_trade,
+                                        atr_period=14,
+                                        atr_multiplier=stop_loss_atr_multiplier)
         
     def calculate_atr(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
         """Calculate Average True Range for stop loss placement"""
-        high = data['High']
-        low = data['Low']
-        close = data['Close']
-        
-        tr1 = high - low
-        tr2 = abs(high - close.shift())
-        tr3 = abs(low - close.shift())
-        
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.rolling(window=period).mean()
-        
-        return atr
+        return self.risk_manager.calculate_atr(data, period)
     
     def calculate_position_size(self, entry_price: float, stop_loss: float, risk_amount: float) -> float:
         """Calculate position size based on risk management"""
-        risk_per_share = abs(entry_price - stop_loss)
-        if risk_per_share == 0:
-            return 0
-        
-        position_size = risk_amount / risk_per_share
-        return position_size
+        return self.risk_manager.calculate_position_size(entry_price, stop_loss, risk_amount)
     
     def is_a_plus_entry(self, event: MarketEvent) -> bool:
         """Determine if an entry qualifies as A+ based on multiple criteria"""
@@ -142,18 +130,18 @@ class BOSCHOCHBacktester:
         
         atr_value = atr.iloc[-1]
         
-        # Set stop loss and take profit
-        if event.direction == "Bullish":
-            stop_loss = entry_price - (atr_value * self.stop_loss_atr_multiplier)
-            take_profit = entry_price + (atr_value * self.stop_loss_atr_multiplier * self.reward_risk_ratio)
-            direction = "Long"
-        else:
-            stop_loss = entry_price + (atr_value * self.stop_loss_atr_multiplier)
-            take_profit = entry_price - (atr_value * self.stop_loss_atr_multiplier * self.reward_risk_ratio)
-            direction = "Short"
+        # Set stop loss and take profit using centralized risk manager
+        rm_direction = "BUY" if event.direction == "Bullish" else "SELL"
+        stop_loss, take_profit = self.risk_manager.compute_stop_and_target_from_atr(
+            entry_price=entry_price,
+            direction=rm_direction,
+            atr_value=atr_value,
+            reward_risk_ratio=self.reward_risk_ratio
+        )
+        direction = "Long" if rm_direction == "BUY" else "Short"
         
         # Calculate position size
-        risk_amount = self.current_capital * self.risk_per_trade
+        risk_amount = self.risk_manager.risk_amount_for_balance(self.current_capital)
         position_size = self.calculate_position_size(entry_price, stop_loss, risk_amount)
         
         if position_size == 0:
