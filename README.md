@@ -86,10 +86,6 @@ Trading Bot/
 │       ├── candlestick_plotter.py    # Price action charts
 │       ├── structure_trend_plotter.py # Trend analysis charts
 │       ├── trend_plotter.py          # Trend visualization
-│       ├── plotting.py               # General plotting utilities
-│       ├── report_generator.py       # Report generation
-│       ├── logger.py                 # Logging functionality
-│       └── notifier.py               # Notification system
 │
 ├── 🧪 Testing_Examples/              # Testing and example files
 │   ├── test_backtester.py            # Backtester functionality tests
