@@ -1,7 +1,7 @@
 import pandas as pd
 from core.data_loader import load_and_resample
 from core.trend_detector import get_trend_from_data, detect_swing_points, detect_trend
-from utils.trend_plotter import plot_trend
+from utils.trend_plotter import plot_market_structure
 
 def test_trend_visualization(symbol: str):
     try:
@@ -25,12 +25,27 @@ def test_trend_visualization(symbol: str):
 
         print(f"\n📉 {tf} Trend: {tf_trend.upper()} — Final Decision: {final_trend.upper()}")
 
-        plot_trend(
+        # Convert swing points to structure format for plot_market_structure
+        structure = []
+        for high in swing_highs:
+            structure.append({
+                'timestamp': high['timestamp'],
+                'price': high['price'],
+                'type': 'HH'  # Assuming swing highs are HH for simplicity
+            })
+        for low in swing_lows:
+            structure.append({
+                'timestamp': low['timestamp'],
+                'price': low['price'],
+                'type': 'LL'  # Assuming swing lows are LL for simplicity
+            })
+        
+        plot_market_structure(
             df=df,
-            swing_highs=swing_highs,
-            swing_lows=swing_lows,
-            tf_name=tf,
-            trend_direction=tf_trend  # more accurate than applying final trend to all
+            structure=structure,
+            trend_direction=tf_trend,
+            symbol="XAUUSD",
+            tf_name=tf
         )
 
 if __name__ == "__main__":

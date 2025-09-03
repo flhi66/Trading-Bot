@@ -9,9 +9,14 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     """
     Calculates the Average True Range (ATR). This function is already efficient.
     """
-    high = df['high']
-    low = df['low']
-    close = df['close']
+    # Handle both lowercase and capitalized column names
+    high_col = 'High' if 'High' in df.columns else 'high'
+    low_col = 'Low' if 'Low' in df.columns else 'low'
+    close_col = 'Close' if 'Close' in df.columns else 'close'
+    
+    high = df[high_col]
+    low = df[low_col]
+    close = df[close_col]
     prev_close = close.shift(1)
     
     tr = pd.concat([
@@ -40,16 +45,19 @@ def detect_swing_points(df: pd.DataFrame, window: int = 3) -> Tuple[List[Tuple[p
     
     # Use ATR to set a dynamic prominence, filtering out insignificant noise.
     # A peak must stand out by at least 20% of the average ATR to be considered.
-    required_prominence = atr * 0.20 if atr > 0 else (df['high'].max() - df['low'].min()) * 0.01
+    high_col = 'High' if 'High' in df.columns else 'high'
+    low_col = 'Low' if 'Low' in df.columns else 'low'
+    
+    required_prominence = atr * 0.20 if atr > 0 else (df[high_col].max() - df[low_col].min()) * 0.01
 
     # Find indices of peaks (highs) and troughs (lows)
     # The 'distance' parameter ensures swings are at least `window` bars apart.
-    high_indices, _ = find_peaks(df['high'], prominence=required_prominence, distance=window)
-    low_indices, _ = find_peaks(-df['low'], prominence=required_prominence, distance=window)
+    high_indices, _ = find_peaks(df[high_col], prominence=required_prominence, distance=window)
+    low_indices, _ = find_peaks(-df[low_col], prominence=required_prominence, distance=window)
 
     # Format output to match the required List[Tuple[timestamp, price]] structure
-    swing_highs = [(df.index[i], df['high'].iloc[i]) for i in high_indices]
-    swing_lows = [(df.index[i], df['low'].iloc[i]) for i in low_indices]
+    swing_highs = [(df.index[i], df[high_col].iloc[i]) for i in high_indices]
+    swing_lows = [(df.index[i], df[low_col].iloc[i]) for i in low_indices]
     
     return swing_highs, swing_lows
 
