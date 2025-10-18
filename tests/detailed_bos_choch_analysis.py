@@ -246,15 +246,15 @@ def main():
     print("=" * 70)
     
     # Load data
-    symbol = "XAUUSD_H1.csv"
+    symbol = "GBP_USD_M1_08-01-2025_09-01-2025_with_volume.pkl" #"XAUUSD_H1.csv"
     resampled = load_and_resample(f"data/{symbol}", days_back=60)
-    h1_data = resampled.get("1H")
+    h1_data = resampled.get("15M")
     
     if h1_data is None or h1_data.empty:
-        print(f"❌ ERROR: No data loaded for the '1H' timeframe.")
+        print(f"❌ ERROR: No data loaded for the 'M15' timeframe.")
         return
     
-    print(f"📊 Loaded {len(h1_data)} H1 candles from {h1_data.index.min()} to {h1_data.index.max()}")
+    print(f"📊 Loaded {len(h1_data)} M15 candles from {h1_data.index.min()} to {h1_data.index.max()}")
     
     # Get market structure and events
     analysis = get_market_analysis(h1_data, prominence_factor=2.5)

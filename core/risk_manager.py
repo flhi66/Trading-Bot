@@ -26,7 +26,7 @@ class RiskManager:
                  slippage_buffer: float = 0.5,
                  spread_pips: float = 1.0,
                  account_currency: str = "USD",
-                 symbol_config: dict = None):
+                 symbol_config: dict = {}):
         self.risk_per_trade = risk_per_trade
         self.atr_period = atr_period
         self.atr_multiplier = atr_multiplier
@@ -91,7 +91,7 @@ class RiskManager:
             'DEFAULT': {'pip_decimals': 4, 'custom_pip_value': None}
         }
 
-    def add_symbol_config(self, symbol: str, pip_decimals: int, custom_pip_value: float = None):
+    def add_symbol_config(self, symbol: str, pip_decimals: int, custom_pip_value: float = None): # type: ignore
         """
         Add or update symbol configuration.
         
@@ -494,7 +494,7 @@ class RiskManager:
         return validation
 
     # --- Helper methods ---
-    def _get_pip_value(self, symbol: str, price: float = None) -> float:
+    def _get_pip_value(self, symbol: str, price: float = None) -> float: # type: ignore
         """
         Calculate pip value for different symbols using flexible configuration.
         

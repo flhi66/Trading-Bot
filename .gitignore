@@ -1,2 +1,6 @@
 /config.py
 /trading-bot-env
+.venv
+*.pyc
+core/__pycache__/data_loader.cpython-312.pyc
+core/__pycache__/data_loader.cpython-312.pyc

@@ -10,7 +10,7 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1) # type: ignore
     return tr.rolling(window=period).mean()
 
 def detect_swing_points_scipy(df: pd.DataFrame, prominence_factor: float = 7.5) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -72,7 +72,126 @@ def build_market_structure(df: pd.DataFrame, prominence_factor: float = 7.5) -> 
             
     return structure
 
-def get_market_analysis(df: pd.DataFrame, prominence_factor: float = 7.5, trend_window: int = 4) -> Dict:
+def swing_highs_lows_with_retracement(ohlc: pd.DataFrame, swing_length: int = 50, minimum_retracement: float = 50.0
+    ) -> pd.DataFrame:
+        highs = ohlc["high"].to_numpy()
+        lows = ohlc["low"].to_numpy()
+        length = len(ohlc)
+
+        highlow = np.full(length, np.nan)
+        level = np.full(length, np.nan)
+        direction = np.full(length, np.nan)
+        current_retracement = np.full(length, np.nan)
+        deepest_retracement = np.full(length, np.nan)
+
+        expect = None  # 'low' or 'high'
+
+        for i in range(swing_length, length):
+            window_high = highs[i - swing_length : i+1]
+            window_low = lows[i - swing_length : i+1]
+
+            if expect is None:
+                # Initialisierung: erstes Extremum suchen
+                if highs[i] == np.max(window_high):
+                    highlow[i] = 1
+                    level[i] = highs[i]
+                    direction[i] = 1
+                    expect = 'low'
+                    # print("Initial Swing High at index", i)
+                    highlow[0] = -1
+                    level[0] = lows[0]
+                    direction[0:i] = -1
+                elif lows[i] == np.min(window_low):
+                    highlow[i] = -1
+                    level[i] = lows[i]
+                    direction[i] = -1
+                    expect = 'high'
+                    # print("Initial Swing Low at index", i)
+                    highlow[0] = 1
+                    level[0] = highs[0]
+                    direction[0:i] = 1
+                continue
+            
+            swing_highs_lows = np.where(~np.isnan(highlow))[0]
+            if len(swing_highs_lows) < 2:
+                continue
+
+            if highs[i] == np.max(window_high):
+                if expect == 'high':
+                    current_retracement[i] = round(100 - ((highs[i] - level[swing_highs_lows[-2]]) / 
+                                  (level[swing_highs_lows[-1]] - level[swing_highs_lows[-2]])) * 100, 2)
+                    deepest_retracement[i] = max(deepest_retracement[i - 1], current_retracement[i])
+                    if current_retracement[i] >= minimum_retracement:
+                        highlow[i] = 1
+                        level[i] = highs[i]
+                        direction[i] = 1
+                        expect = 'low'
+                    else:
+                        direction[i] = -1
+                                               
+
+                elif expect == 'low':
+                    if highs[i] >= level[swing_highs_lows[-1]]:
+                        highlow[swing_highs_lows[-1]] = np.nan
+                        level[swing_highs_lows[-1]] = np.nan
+                        highlow[i] = 1
+                        level[i] = highs[i]
+                    direction[i] = 1
+                    swing_highs_lows = np.where(~np.isnan(highlow))[0]
+                    if len(swing_highs_lows) < 3:
+                        continue
+                    current_retracement[i] = round(100 - ((highs[i] - level[swing_highs_lows[-3]]) / 
+                                                    (level[swing_highs_lows[-2]] - level[swing_highs_lows[-3]])) * 100, 2)
+                    deepest_retracement[i] = 0.0
+
+
+            elif lows[i] == np.min(window_low):
+                if expect == 'low':
+                    current_retracement[i] = round(100 - ((lows[i] - level[swing_highs_lows[-2]]) / 
+                                  (level[swing_highs_lows[-1]] - level[swing_highs_lows[-2]])) * 100, 2)
+                    deepest_retracement[i] = max(deepest_retracement[i - 1], current_retracement[i])
+                    if current_retracement[i] >= minimum_retracement:
+                        highlow[i] = -1
+                        level[i] = lows[i]
+                        direction[i] = -1
+                        expect = 'high'
+                    else:
+                        direction[i] = 1
+
+                elif expect == 'high':
+                    if lows[i] <= level[swing_highs_lows[-1]]:
+                        highlow[swing_highs_lows[-1]] = np.nan
+                        level[swing_highs_lows[-1]] = np.nan
+                        highlow[i] = -1
+                        level[i] = lows[i]
+                    direction[i] = -1
+                    swing_highs_lows = np.where(~np.isnan(highlow))[0]
+                    if len(swing_highs_lows) < 3:
+                        continue
+                    current_retracement[i] = round(100 - ((lows[i] - level[swing_highs_lows[-3]]) / 
+                                                    (level[swing_highs_lows[-2]] - level[swing_highs_lows[-3]])) * 100, 2)
+                    deepest_retracement[i] = 0.0
+
+            else:
+                direction[i] = direction[i - 1]
+                if expect == 'high':
+                    current_retracement[i] = round(100 - ((highs[i] - level[swing_highs_lows[-2]]) / 
+                                                    (level[swing_highs_lows[-1]] - level[swing_highs_lows[-2]])) * 100, 2)
+                elif expect == 'low':
+                    current_retracement[i] = round(100 - ((lows[i] - level[swing_highs_lows[-2]]) / 
+                                                    (level[swing_highs_lows[-1]] - level[swing_highs_lows[-2]])) * 100, 2)
+                deepest_retracement[i] = max(deepest_retracement[i - 1], current_retracement[i])
+
+        return pd.DataFrame({
+            "HighLow": highlow,
+            "Level": level,
+            "Direction": direction,
+            "CurrentRetracement%": current_retracement,
+            "DeepestRetracement%": deepest_retracement
+        }, index=ohlc.index)
+
+
+def get_market_analysis(df: pd.DataFrame, prominence_factor: float = 7.5, trend_window: int = 10) -> Dict:
     """
     Main function to get market structure and confirm the current trend.
     """

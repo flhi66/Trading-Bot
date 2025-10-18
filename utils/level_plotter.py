@@ -264,7 +264,7 @@ class EnhancedChartPlotter:
                         y0=price - zone_height,
                         y1=price + zone_height,
                         fillcolor=color,
-                        opacity=zone_opacity,
+                        opacity=zone_opacity, # pyright: ignore[reportPossiblyUnboundVariable]
                         layer="below",
                         line_width=0
                     )

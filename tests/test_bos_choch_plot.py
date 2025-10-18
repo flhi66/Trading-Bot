@@ -7,15 +7,15 @@ import webbrowser
 import os
 
 # === Step 1: Load data ===
-symbol = "XAUUSD_H1.csv"
+symbol = "GBP_USD_M1_08-01-2025_09-01-2025_with_volume.pkl" #"XAUUSD_H1.csv"
 # Use 365 days of data instead of 60 for better structure analysis
 resampled = load_and_resample(f"data/{symbol}", days_back=60)
-h1_data = resampled.get("1H")
+h1_data = resampled.get("15M")
 
 if h1_data is None or h1_data.empty:
-    print(f"❌ ERROR: No data loaded for the '1H' timeframe.")
+    print(f"❌ ERROR: No data loaded for the '15M' timeframe.")
 else:
-    print(f"📊 Loaded {len(h1_data)} H1 candles from {h1_data.index.min()} to {h1_data.index.max()}")
+    print(f"📊 Loaded {len(h1_data)} 15M candles from {h1_data.index.min()} to {h1_data.index.max()}")
     
     # === Step 2: Get base market structure ===
     # Use prominence_factor=2.5 for BOS/CHOCH detection (more sensitive than 7.5)
@@ -25,22 +25,22 @@ else:
     print(f"📊 Total structure points: {len(structure)}")
     
     # Debug: Show structure points around the May 25 - June 1 period (2024)
-    print("\n🔍 Debug: Structure points around May 25 - June 1, 2024:")
-    target_start = pd.Timestamp('2024-05-25', tz='UTC')
-    target_end = pd.Timestamp('2024-06-01', tz='UTC')
+    # print("\n🔍 Debug: Structure points around May 25 - June 1, 2024:")
+    # target_start = pd.Timestamp('2024-05-25', tz='UTC')
+    # target_end = pd.Timestamp('2024-06-01', tz='UTC')
     
-    relevant_points = []
-    for i, point in enumerate(structure):
-        timestamp = pd.Timestamp(point['timestamp'])
-        if target_start <= timestamp <= target_end:
-            relevant_points.append((i, point))
+    # relevant_points = []
+    # for i, point in enumerate(structure):
+    #     timestamp = pd.Timestamp(point['timestamp'])
+    #     if target_start <= timestamp <= target_end:
+    #         relevant_points.append((i, point))
     
-    if relevant_points:
-        print(f"  Found {len(relevant_points)} relevant points:")
-        for idx, point in relevant_points[:10]:  # Show first 10 relevant points
-            print(f"    Index {idx}: {point['type']} @ {point['price']:.2f} - {point['timestamp']}")
-    else:
-        print("  No structure points found in this period")
+    # if relevant_points:
+    #     print(f"  Found {len(relevant_points)} relevant points:")
+    #     for idx, point in relevant_points[:10]:  # Show first 10 relevant points
+    #         print(f"    Index {idx}: {point['type']} @ {point['price']:.2f} - {point['timestamp']}")
+    # else:
+    #     print("  No structure points found in this period")
     
     # Debug: Show recent structure points for context
     print(f"\n🔍 Debug: Recent structure points (last 20):")

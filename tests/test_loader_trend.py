@@ -5,7 +5,7 @@ from utils.trend_plotter import plot_market_structure
 
 def test_trend_visualization(symbol: str):
     try:
-        resampled_data = load_and_resample(symbol)
+        resampled_data = load_and_resample(f"data/{symbol}")
     except FileNotFoundError as e:
         print(f"❌ Data not found for symbol '{symbol}': {e}")
         return
@@ -29,14 +29,14 @@ def test_trend_visualization(symbol: str):
         structure = []
         for high in swing_highs:
             structure.append({
-                'timestamp': high['timestamp'],
-                'price': high['price'],
+                'timestamp': high[0],
+                'price': high[1],
                 'type': 'HH'  # Assuming swing highs are HH for simplicity
             })
         for low in swing_lows:
             structure.append({
-                'timestamp': low['timestamp'],
-                'price': low['price'],
+                'timestamp': low[0],
+                'price': low[1],
                 'type': 'LL'  # Assuming swing lows are LL for simplicity
             })
         
@@ -50,4 +50,4 @@ def test_trend_visualization(symbol: str):
 
 if __name__ == "__main__":
     # 🔧 Change this to any symbol file you've added in /data
-    test_trend_visualization("XAUUSD")
+    test_trend_visualization("XAUUSD_M1.csv")

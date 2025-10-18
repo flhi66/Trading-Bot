@@ -1,0 +1,16 @@
+{
+  "include": ["."],
+  "extraPaths": ["."],
+  
+    "typeCheckingMode": "basic",  // oder "off"
+    "reportArgumentType": "information",
+    "reportAssignmentType": "information",
+    "reportGeneralTypeIssues": "information",
+    "reportOptionalMemberAccess": "information",
+    "reportOptionalSubscript": "information",
+    "reportOptionalCall": "information",
+    "reportOptionalIterable": "information",
+    "reportOptionalOperand": "information"
+
+
+}

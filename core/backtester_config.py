@@ -136,7 +136,7 @@ STRATEGY_PRESETS = {
     }
 }
 
-def get_config(preset_name: str = None) -> dict:
+def get_config(preset_name: str = None) -> dict: # type: ignore
     """Get configuration with optional preset override"""
     config = {
         "trading": TRADING_CONFIG.copy(),

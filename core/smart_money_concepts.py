@@ -118,7 +118,7 @@ class MarketStructureAnalyzer:
         return "sideways"
 
     def _calculate_confidence(self, current_point: StructurePoint, broken_level: StructurePoint, 
-                            intermediate_point: Optional[StructurePoint] = None, event_type: EventType = None) -> float:
+                            intermediate_point: Optional[StructurePoint] = None, event_type: EventType = None) -> float: # type: ignore
         """Enhanced confidence calculation with event-specific criteria and structure quality checks"""
         base_confidence = 0.6
         

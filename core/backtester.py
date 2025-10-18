@@ -36,7 +36,7 @@ class Trade:
     duration: timedelta
     stop_loss: float
     take_profit: float
-    exit_reason: str  # "TP", "SL", "Manual", "Time"
+    exit_reason: str  # "TP", "SL", "Manual", "Time", "BE"
 
 @dataclass
 class BacktestResult:
@@ -63,8 +63,8 @@ class BOSCHOCHBacktester:
     """Advanced backtester for BOS/CHOCH trading strategies"""
     
     def __init__(self, 
-                 initial_capital: float = 10000,
-                 risk_per_trade: float = 0.02,  # 2% risk per trade
+                 initial_capital: float = 100000,
+                 risk_per_trade: float = 0.01,  # 1% risk per trade
                  reward_risk_ratio: float = 2.0,  # 2:1 reward to risk
                  max_trade_duration: int = 48,  # hours
                  confidence_threshold: float = 0.7,  # Only trade A+ entries
@@ -91,7 +91,7 @@ class BOSCHOCHBacktester:
     
     def calculate_position_size(self, entry_price: float, stop_loss: float, risk_amount: float) -> float:
         """Calculate position size based on risk management"""
-        return self.risk_manager.calculate_position_size(entry_price, stop_loss, risk_amount)
+        return self.risk_manager.calculate_position_size(entry_price, stop_loss, risk_amount, self.current_capital)
     
     def is_a_plus_entry(self, event: MarketEvent) -> bool:
         """Determine if an entry qualifies as A+ based on multiple criteria"""
@@ -133,11 +133,11 @@ class BOSCHOCHBacktester:
         # Set stop loss and take profit using centralized risk manager
         rm_direction = "BUY" if event.direction == "Bullish" else "SELL"
         stop_loss, take_profit = self.risk_manager.compute_stop_and_target_from_atr(
-            entry_price=entry_price,
+            market_price=entry_price,
             direction=rm_direction,
             atr_value=atr_value,
             reward_risk_ratio=self.reward_risk_ratio
-        )
+        ) # type: ignore
         direction = "Long" if rm_direction == "BUY" else "Short"
         
         # Calculate position size
@@ -362,8 +362,8 @@ class BOSCHOCHBacktester:
             max_drawdown_pct=max_drawdown_pct,
             sharpe_ratio=sharpe_ratio,
             profit_factor=profit_factor,
-            avg_win=avg_win,
-            avg_loss=avg_loss,
+            avg_win=avg_win, # type: ignore
+            avg_loss=avg_loss, # type: ignore
             avg_trade_duration=avg_trade_duration,
             monthly_returns=monthly_returns,
             equity_curve=equity_series,
@@ -387,6 +387,7 @@ class BOSCHOCHBacktester:
             dates = self._data_timestamps
         else:
             # Fallback: create a simple index
+            print("Fallback")
             dates = pd.date_range(start='2025-01-01', periods=len(self.equity_curve), freq='H')
         
         equity_df = pd.DataFrame({'equity': self.equity_curve}, index=dates)
@@ -395,7 +396,7 @@ class BOSCHOCHBacktester:
         monthly_equity = equity_df.resample('M').last()
         monthly_returns = monthly_equity.pct_change().dropna()
         
-        return monthly_returns
+        return monthly_returns # type: ignore
 
 class BacktestVisualizer:
     """Creates comprehensive charts for backtest results"""
@@ -429,7 +430,7 @@ class BacktestVisualizer:
         )
         
         # Add zero line
-        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=1, col=1)
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=1, col=1) # type: ignore
         
         # Trade-by-Trade P&L
         pnl_values = [t.pnl for t in self.result.trades]
@@ -447,7 +448,7 @@ class BacktestVisualizer:
         )
         
         # Add zero line
-        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=1)
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=1) # type: ignore
         
         # Drawdown
         drawdown_values = self.result.drawdown_curve.values
@@ -543,14 +544,16 @@ class BacktestVisualizer:
         
         # Prepare data for heatmap
         monthly_returns = self.result.monthly_returns.copy()
+        print("monthly_returns:\n", monthly_returns)
         monthly_returns.index = pd.to_datetime(monthly_returns.index)
+        print("monthly_returns:\n", monthly_returns)
         
         # Create year-month matrix
         monthly_returns['year'] = monthly_returns.index.year
         monthly_returns['month'] = monthly_returns.index.month
         
         # Pivot for heatmap
-        returns_matrix = monthly_returns.pivot(index='year', columns='month', values='returns')
+        returns_matrix = monthly_returns.pivot(index='year', columns='month', values='equity')
         
         # Month names for better readability
         month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -713,7 +716,7 @@ def create_comprehensive_dashboard(backtest_result: BacktestResult, visualizer: 
         monthly_returns.index = pd.to_datetime(monthly_returns.index)
         monthly_returns['year'] = monthly_returns.index.year
         monthly_returns['month'] = monthly_returns.index.month
-        returns_matrix = monthly_returns.pivot(index='year', columns='month', values='returns')
+        returns_matrix = monthly_returns.pivot(index='year', columns='month', values='equity')
         
         month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -786,27 +789,27 @@ def create_comprehensive_dashboard(backtest_result: BacktestResult, visualizer: 
 
 def main():
     """Main function to run the backtest with the same data loading as test_bos_choch_plot.py"""
-    print("🚀 Starting BOS/CHOCH Backtester with 60-day XAUUSD H1 data...")
+    print("🚀 Starting BOS/CHOCH Backtester")
     
     # === Step 1: Load data exactly like test_bos_choch_plot.py ===
-    symbol = "XAUUSD_H1.csv"
+    symbol = "GBP_USD_M1_08-01-2025_09-01-2025_with_volume.pkl"  #"XAUUSD_H1.csv"
     print(f"📊 Loading data for {symbol} with days_back=60...")
     
     # Use the same data loading function
     from core.data_loader import load_and_resample
     resampled = load_and_resample(f"data/{symbol}", days_back=60)
-    h1_data = resampled.get("1H")
+    data = resampled.get("15M")
     
-    if h1_data is None or h1_data.empty:
-        print(f"❌ ERROR: No data loaded for the '1H' timeframe.")
+    if data is None or data.empty:
+        print(f"❌ ERROR: No data loaded for the '15M' timeframe.")
         return
     
-    print(f"📊 Loaded {len(h1_data)} H1 candles from {h1_data.index.min()} to {h1_data.index.max()}")
+    print(f"📊 Loaded {len(data)} 15M candles from {data.index.min()} to {data.index.max()}")
     
     # === Step 2: Get market structure analysis exactly like test_bos_choch_plot.py ===
     print("🔍 Analyzing market structure...")
     from core.structure_builder import get_market_analysis
-    analysis = get_market_analysis(h1_data, prominence_factor=2.5)
+    analysis = get_market_analysis(data, prominence_factor=2.5)
     structure = analysis['structure']
     
     print(f"📊 Total structure points: {len(structure)}")
@@ -846,8 +849,8 @@ def main():
     
     # Override with specific settings for this test
     config['trading']['confidence_threshold'] = 0.7 if a_plus_events else 0.5
-    config['data']['symbol'] = symbol.split('_')[0]
-    config['data']['timeframe'] = '1H'
+    config['data']['symbol'] = "".join(symbol for symbol in symbol.split('_')[:2]) if len(symbol.split('_')) >= 2 else symbol.split("_")[0]
+    config['data']['timeframe'] = '15M'
     
     print("📋 Backtester Configuration:")
     from core.backtester_config import print_config_summary
@@ -865,9 +868,9 @@ def main():
     
     # === Step 5: Run backtest ===
     print(f"\n🚀 Running backtest on {len(a_plus_events)} A+ entries...")
-    print(f"📅 Date range: {h1_data.index.min()} to {h1_data.index.max()}")
+    print(f"📅 Date range: {data.index.min()} to {data.index.max()}")
     
-    result = backtester.run_backtest(h1_data, a_plus_events)
+    result = backtester.run_backtest(data, a_plus_events)
     
     # === Step 6: Display results ===
     print("\n" + "="*60)
@@ -881,7 +884,7 @@ def main():
     print(f"📊 Profit Factor: {result.profit_factor:.2f}")
     print(f"📉 Max Drawdown: {result.max_drawdown:.2%}")
     print(f"📊 Sharpe Ratio: {result.sharpe_ratio:.2f}")
-    print(f"💵 Final Capital: ${result.total_pnl + 10000:,.2f}")
+    print(f"💵 Final Capital: ${result.total_pnl + config['trading']['initial_capital']:,.2f}")
     print(f"📈 Total Return: {result.total_pnl_pct:.2%}")
     
     # === Step 7: Generate visualizations ===

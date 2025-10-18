@@ -24,12 +24,12 @@ def main():
     
     # === Step 1: Load Data ===
     print("\n📊 Step 1: Loading Data...")
-    symbol = "XAUUSD_H1.csv"
+    symbol = "GBP_USD_M1_08-01-2025_09-01-2025_with_volume.pkl"
     resampled = load_and_resample(f"data/{symbol}")
-    h1_data = resampled.get("1H")
+    h1_data = resampled.get("15M")
     
     if h1_data is None or h1_data.empty:
-        print(f"❌ ERROR: No data loaded for the '1H' timeframe.")
+        print(f"❌ ERROR: No data loaded for the '15M' timeframe.")
         return
     
     print(f"✅ Loaded {len(h1_data)} data points for {symbol}")
