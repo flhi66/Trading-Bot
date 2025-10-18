@@ -37,11 +37,12 @@ class StructureTrendPlotter:
         """Creates the base candlestick figure - Matching level_plotter.py style"""
         fig = go.Figure(data=go.Candlestick(
             x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
-            name=symbol, increasing_line_color='#26a69a', decreasing_line_color='#ef5350'
+            name=symbol, increasing_line_color='#77dd76', decreasing_line_color='#ef5350'
         ))
         fig.update_layout(
             title=title, template="plotly_dark", height=900,
             xaxis_rangeslider_visible=False, showlegend=True,
+            margin=dict(l=0, r=0, b=0),
             legend=dict(
                 orientation="h",
                 yanchor="bottom",
@@ -50,6 +51,12 @@ class StructureTrendPlotter:
                 x=1
             )
         )
+        fig.update_xaxes(visible=True, showticklabels=True, 
+                 rangebreaks=[dict(bounds=["sat", "mon"])],
+                 dtick="86400000", # one day in milliseconds
+                    tickformat="%d %b\n%Y"
+                 )
+        fig.update_yaxes(visible=True, showticklabels=True, dtick=0.005)
         return fig
 
     def standardize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -379,8 +386,8 @@ class StructureTrendPlotter:
         bullish_bias = ((structure_counts['HH'] + structure_counts['HL']) / total_points * 100) if total_points > 0 else 0
         
         fig.add_annotation(
-            x=df_std.index[-1],
-            y=df_std['High'].max() * 0.92,
+            x=df_std.index[200],
+            y=df_std['High'].max(), #if df_std['High'][-1] < 0.8 * df_std['High'].max() else 0.7 * df_std['High'].max(),
             text=f"<b>📊 STRUCTURE</b><br>" +
                  f"Trend: {trend.upper()}<br>" +
                  f"HH: {structure_counts['HH']} | HL: {structure_counts['HL']}<br>" +
@@ -396,6 +403,163 @@ class StructureTrendPlotter:
             borderpad=8
         )
         
+        return fig
+
+    def plot_structure(self, df: pd.DataFrame, structure: pd.DataFrame, symbol: str = "SYMBOL", timeframe: str = "15Min") -> go.Figure:
+        """
+        Chart: Market Structure Detection - Matching BOS/CHOCH chart style
+        """
+
+        # Standardize DataFrame
+        df_std = self.standardize_dataframe(df)
+
+        # Create base chart matching level_plotter.py style
+
+        fig = go.Figure()
+        # Create base chart matching level_plotter.py style
+        fig = self._create_base_chart(df_std, f"{symbol} - Market Structure Analysis (HH/HL/LH/LL)", symbol)
+
+        # Process structure points with BOS/CHOCH styling
+        structure_counts = {'HH': 0, 'HL': 0, 'LH': 0, 'LL': 0}
+
+        for i, struct_point in enumerate(structure.itertuples()):
+            struct_type = struct_point[3]
+            timestamp = struct_point[0]
+            price = struct_point[2]
+            
+            structure_counts[struct_type] += 1
+            
+            # Get color for this structure type
+            color = self.color_scheme.get((struct_type, 'Bullish' if struct_type in ['HH', 'HL'] else 'Bearish'), '#888888')
+            
+            # Determine symbol and position based on structure type
+            if struct_type == 'HH':
+                symbol_icon = 'diamond-tall'
+                marker_y_position = price + (abs(price) * 0.0005)
+                arrow_y_offset = -50
+            elif struct_type == 'HL':
+                symbol_icon = 'diamond-wide'
+                marker_y_position = price - (abs(price) * 0.0005)
+                arrow_y_offset = 50
+            elif struct_type == 'LH':
+                symbol_icon = 'diamond-wide'
+                marker_y_position = price + (abs(price) * 0.0005)
+                arrow_y_offset = -50
+            elif struct_type == 'LL':
+                symbol_icon = 'diamond-tall'
+                marker_y_position = price - (abs(price) * 0.0005)
+                arrow_y_offset = +50
+            
+            # Add structure point marker
+            fig.add_trace(go.Scatter(
+                x=[timestamp], 
+                y=[marker_y_position], 
+                mode='markers',
+                marker=dict(
+                    symbol=symbol_icon, 
+                    size=10, 
+                    color=color, 
+                    line=dict(width=2, color='white')
+                ),
+                name=f"{struct_type}",
+                hovertemplate=f"<b>{struct_type}</b><br>" +
+                             f"Price: {price:.5f}<br>" +
+                             f"Time: {timestamp}<br>" +
+                             f"<i>{self._get_structure_description(struct_type)}</i><extra></extra>",
+                showlegend=False
+            ))
+            
+            # Add clean structure label
+            fig.add_annotation(
+                x=timestamp, 
+                y=marker_y_position,
+                text=f"<b>{struct_type}</b><br>@{price:.5f}", 
+                showarrow=True, 
+                arrowhead=2, 
+                arrowcolor=color,
+                ax=0, 
+                ay=arrow_y_offset,
+                bgcolor=color, 
+                font=dict(color='white', size=10), 
+                borderpad=4,
+                bordercolor='white',
+                borderwidth=1
+            )
+            
+            # Connect structure points of same type with lines
+            # if i > 0:
+            #     # Find previous structure point of same type
+            #     prev_same_type = None
+            #     for j in range(i-1, -1, -1):
+            #         if structure[j]['type'] == struct_type:
+            #             prev_same_type = structure[j]
+            #             break
+                
+            #     if prev_same_type:
+            #         self._add_swing_break_line(
+            #             fig,
+            #             {'timestamp': prev_same_type['timestamp'], 'price': prev_same_type['price']},
+            #             {'timestamp': timestamp, 'price': price},
+            #             color
+            #         )
+
+        # Add trend background
+        # trend_color = self.trend_colors.get(trend, '#9E9E9E')
+        # fig.add_hrect(
+        #     y0=df_std['Low'].min() * 0.999,
+        #     y1=df_std['High'].max() * 1.001,
+        #     fillcolor=trend_color,
+        #     opacity=0.08,
+        #     layer="below",
+        #     line_width=0,
+        # )
+
+        # Filter only rows with valid HighLow
+        swings = structure.dropna(subset=['HighLow', 'Level'])
+
+        # Use the datetime index of the swings directly
+        swing_dates = swings.index
+        swing_levels = swings['Level'].values
+        swing_types = swings['HighLow'].values
+
+        # Draw lines between consecutive swings
+        for i in range(len(swings) - 1):
+            fig.add_trace(
+                go.Scatter(
+                    x=[swing_dates[i], swing_dates[i + 1]],
+                    y=[swing_levels[i], swing_levels[i + 1]],
+                    mode='lines',
+                    line=dict(
+                        color='rgba(0, 128, 0, 0.5)' if swing_types[i] == -1 else 'rgba(255, 0, 0, 0.5)',
+                        width=2
+                    ),
+                    showlegend=False
+                )
+        )
+        
+        # Add structure summary annotation
+        total_points = sum(structure_counts.values())
+        bullish_bias = ((structure_counts['HH'] + structure_counts['HL']) / total_points * 100) if total_points > 0 else 0
+        
+        fig.add_annotation(
+            x=df_std.index[200],
+            y=df_std['High'].max(), #if df_std['High'][-1] < 0.8 * df_std['High'].max() else 0.7 * df_std['High'].max(),
+            text=f"<b>📈 STRUCTURE</b><br>" +
+                 #f"Trend: {trend.upper()}<br>" +
+                 f"HH: {structure_counts['HH']} | HL: {structure_counts['HL']}<br>" +
+                 f"LH: {structure_counts['LH']} | LL: {structure_counts['LL']}<br>" +
+                 f"Bullish Bias: {bullish_bias:.1f}%",
+            showarrow=False,
+            xanchor='right',
+            yanchor='top',
+            bgcolor='rgba(0,0,0,0.8)',
+            font=dict(color='white', size=11),
+            bordercolor='white',
+            borderwidth=2,
+            borderpad=8
+        )
+
+
         return fig
 
     def _get_structure_description(self, struct_type: str) -> str:
