@@ -175,7 +175,7 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
                         continue
                     current_retracement[i] = round(100 - ((highs[i] - level[swing_highs_lows[-3]]) / 
                                                     (level[swing_highs_lows[-2]] - level[swing_highs_lows[-3]])) * 100, 2)
-                    deepest_retracement[i] = 0.0
+                    deepest_retracement[i] = 0.0 #if deepest_retracement[i - 1] is np.nan else deepest_retracement[i - 1]
 
 
             elif lows[i] == np.min(window_low):
@@ -203,7 +203,7 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
                         continue
                     current_retracement[i] = round(100 - ((lows[i] - level[swing_highs_lows[-3]]) / 
                                                     (level[swing_highs_lows[-2]] - level[swing_highs_lows[-3]])) * 100, 2)
-                    deepest_retracement[i] = 0.0
+                    deepest_retracement[i] = 0.0 #if deepest_retracement[i - 1] is np.nan else deepest_retracement[i - 1]
 
             else:
                 direction[i] = direction[i - 1]
@@ -215,6 +215,7 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
                                                     (level[swing_highs_lows[-1]] - level[swing_highs_lows[-2]])) * 100, 2)
                 deepest_retracement[i] = max(deepest_retracement[i - 1], current_retracement[i])
 
+        print(deepest_retracement)
         return pd.DataFrame({
             "HighLow": highlow,
             "Level": level,
@@ -434,6 +435,26 @@ def add_retracements(ohlc: pd.DataFrame, swing_highs_lows: pd.DataFrame, only_sw
 
     return swing_highs_lows
 
+def detect_trend(swing_points: pd.DataFrame, trend_window: int = 4) -> str:
+    """
+    Detects the current trend based on the last N swing points.
+    """
+    if len(swing_points) < trend_window:
+        print("Not enough swing points to determine trend.")
+        return "sideways"
+
+    recent_swings = swing_points.dropna().iloc[-trend_window:]
+    types = recent_swings['Classification'].tolist()
+
+    is_uptrend = "HH" in types and "HL" in types and "LL" not in types
+    is_downtrend = "LL" in types and "LH" in types and "HH" not in types
+
+    if is_uptrend:
+        return "uptrend"
+    elif is_downtrend:
+        return "downtrend"
+    else:
+        return "sideways"
 
 def get_market_analysis(df: pd.DataFrame, prominence_factor: float = 7.5, trend_window: int = 10) -> Dict:
     """
@@ -463,7 +484,7 @@ def get_market_analysis(df: pd.DataFrame, prominence_factor: float = 7.5, trend_
         "swing_lows": list(swing_lows.reset_index().to_records(index=False))
     }
 
-def analyse_market_structure(df: pd.DataFrame, swing_length: int = 10, trend_window: int = 10, prominence_factor: float = 7.5, based_on_atr = True) -> pd.DataFrame:
+def analyse_market_structure(df: pd.DataFrame, swing_length: int = 10, trend_window: int = 4, prominence_factor: float = 7.5, based_on_atr = True) -> Tuple[pd.DataFrame, str]:
     """
     Main function to get market structure and confirm the current trend.
     """
@@ -478,7 +499,9 @@ def analyse_market_structure(df: pd.DataFrame, swing_length: int = 10, trend_win
     if not "Direction" in swing_highs_lows.columns or not "CurrentRetracement" in swing_highs_lows.columns or not "DeepestRetracement" in swing_highs_lows.columns:
         swing_highs_lows = add_retracements(df, swing_highs_lows, only_swing_points=True)
 
-    return swing_highs_lows
+    trend = detect_trend(swing_highs_lows, trend_window=trend_window)
+
+    return swing_highs_lows, trend
 
 
 
