@@ -219,9 +219,9 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
         return pd.DataFrame({
             "HighLow": highlow,
             "Level": level,
-            "Direction": direction,
-            "CurrentRetracement": current_retracement,
-            "DeepestRetracement": deepest_retracement
+            #"Direction": direction,
+            "Retracement": current_retracement,
+            #"DeepestRetracement": deepest_retracement
         }, index=ohlc.index)
 
 def do_highlow_classification(df: pd.DataFrame) -> pd.DataFrame:
@@ -426,12 +426,12 @@ def add_retracements(ohlc: pd.DataFrame, swing_highs_lows: pd.DataFrame, only_sw
                     current_retracement.iloc[i],
                 )
 
-    direction = pd.Series(direction, name="Direction")
+    #direction = pd.Series(direction, name="Direction")
     current_retracement = pd.Series(current_retracement, name="CurrentRetracement")
     deepest_retracement = pd.Series(deepest_retracement, name="DeepestRetracement")
-    swing_highs_lows['Direction'] = direction
-    swing_highs_lows['CurrentRetracement'] = current_retracement
-    swing_highs_lows['DeepestRetracement'] = deepest_retracement
+    #swing_highs_lows['Direction'] = direction
+    swing_highs_lows['Retracement'] = current_retracement
+    # swing_highs_lows['DeepestRetracement'] = deepest_retracement
 
     return swing_highs_lows
 
@@ -502,27 +502,3 @@ def analyse_market_structure(df: pd.DataFrame, swing_length: int = 10, trend_win
     trend = detect_trend(swing_highs_lows, trend_window=trend_window)
 
     return swing_highs_lows, trend
-
-
-
-    trend = "sideways"
-    if len(structure) >= trend_window:
-        recent_structure = structure[-trend_window:]
-        types = [p['type'] for p in recent_structure]
-        
-        is_uptrend = "HH" in types and "HL" in types and "LL" not in types
-        is_downtrend = "LL" in types and "LH" in types and "HH" not in types
-
-        if is_uptrend:
-            trend = "uptrend"
-        elif is_downtrend:
-            trend = "downtrend"
-
-    swing_highs, swing_lows = detect_swing_points_scipy(df, prominence_factor)
-    
-    return {
-        "trend": trend,
-        "structure": structure,
-        "swing_highs": list(swing_highs.reset_index().to_records(index=False)),
-        "swing_lows": list(swing_lows.reset_index().to_records(index=False))
-    }

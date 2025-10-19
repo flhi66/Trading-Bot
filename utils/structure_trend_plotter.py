@@ -428,7 +428,7 @@ class StructureTrendPlotter:
             struct_type = struct_point.Classification
             timestamp = struct_point.Index
             price = float(struct_point.Level)
-            retracement = float(struct_point.DeepestRetracement)
+            retracement = float(struct_point.Retracement)
             
             structure_counts[struct_type] += 1
             
@@ -453,6 +453,10 @@ class StructureTrendPlotter:
                 marker_y_position = price - (abs(price) * 0.0005)
                 arrow_y_offset = +50
             
+            is_in_rangebreak = timestamp.day_name().lower() in ["saturday", "sunday"] # type: ignore
+            if is_in_rangebreak:
+                print(f"Warning: Structure point at {timestamp} falls within a rangebreak period.")
+
             # Add structure point marker
             fig.add_trace(go.Scatter(
                 x=[timestamp], 
