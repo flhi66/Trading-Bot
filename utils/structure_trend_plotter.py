@@ -1,6 +1,6 @@
 import pandas as pd
 import plotly.graph_objects as go
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from core.structure_builder import build_market_structure, detect_swing_points_scipy, get_market_analysis
 from core.trend_detector import detect_swing_points, detect_trend, get_trend_from_data
 
@@ -11,7 +11,7 @@ class StructureTrendPlotter:
     
     def __init__(self):
         # Color scheme matching level_plotter.py
-        self.color_scheme = {
+        self.color_scheme: Dict[Tuple[str, str], str] = {
             ('HH', 'Bullish'): '#26a69a', ('HH', 'Bearish'): '#ef5350',
             ('HL', 'Bullish'): '#2196F3', ('HL', 'Bearish'): '#FFA726',
             ('LH', 'Bullish'): '#9C27B0', ('LH', 'Bearish'): '#FF5722',
@@ -37,7 +37,7 @@ class StructureTrendPlotter:
         """Creates the base candlestick figure - Matching level_plotter.py style"""
         fig = go.Figure(data=go.Candlestick(
             x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
-            name=symbol, increasing_line_color='#77dd76', decreasing_line_color='#ef5350'
+            name="", increasing_line_color='#77dd76', decreasing_line_color='#ef5350',
         ))
         fig.update_layout(
             title=title, template="plotly_dark", height=900,
@@ -54,7 +54,8 @@ class StructureTrendPlotter:
         fig.update_xaxes(visible=True, showticklabels=True, 
                  rangebreaks=[dict(bounds=["sat", "mon"])],
                  dtick="86400000", # one day in milliseconds
-                    tickformat="%d %b\n%Y"
+                    tickformat="%d %b\n%Y",
+                    hoverformat="%Y-%m-%d %H:%M:%S"
                  )
         fig.update_yaxes(visible=True, showticklabels=True, dtick=0.005)
         return fig
@@ -405,7 +406,8 @@ class StructureTrendPlotter:
         
         return fig
 
-    def plot_structure(self, df: pd.DataFrame, structure: pd.DataFrame, symbol: str = "SYMBOL", timeframe: str = "15Min") -> go.Figure:
+    def plot_structure(self, df: pd.DataFrame, structure: pd.DataFrame, symbol: str = "SYMBOL", timeframe: str = "15Min",
+                       show_labels: bool = False) -> go.Figure:
         """
         Chart: Market Structure Detection - Matching BOS/CHOCH chart style
         """
@@ -417,20 +419,21 @@ class StructureTrendPlotter:
 
         fig = go.Figure()
         # Create base chart matching level_plotter.py style
-        fig = self._create_base_chart(df_std, f"{symbol} - Market Structure Analysis (HH/HL/LH/LL)", symbol)
+        fig = self._create_base_chart(df_std, f"{symbol} {timeframe} - Market Structure Analysis (HH/HL/LH/LL)", symbol)
 
         # Process structure points with BOS/CHOCH styling
         structure_counts = {'HH': 0, 'HL': 0, 'LH': 0, 'LL': 0}
 
         for i, struct_point in enumerate(structure.itertuples()):
-            struct_type = struct_point[3]
-            timestamp = struct_point[0]
-            price = struct_point[2]
+            struct_type = struct_point.Classification
+            timestamp = struct_point.Index
+            price = float(struct_point.Level)
+            retracement = float(struct_point.DeepestRetracement)
             
             structure_counts[struct_type] += 1
             
             # Get color for this structure type
-            color = self.color_scheme.get((struct_type, 'Bullish' if struct_type in ['HH', 'HL'] else 'Bearish'), '#888888')
+            color = self.color_scheme.get((str(struct_type), 'Bullish' if struct_type in ['HH', 'HL'] else 'Bearish'), '#888888')
             
             # Determine symbol and position based on structure type
             if struct_type == 'HH':
@@ -457,7 +460,7 @@ class StructureTrendPlotter:
                 mode='markers',
                 marker=dict(
                     symbol=symbol_icon, 
-                    size=10, 
+                    size=7, 
                     color=color, 
                     line=dict(width=2, color='white')
                 ),
@@ -465,26 +468,28 @@ class StructureTrendPlotter:
                 hovertemplate=f"<b>{struct_type}</b><br>" +
                              f"Price: {price:.5f}<br>" +
                              f"Time: {timestamp}<br>" +
+                             f"Retracement: {retracement:.2f}%<br>" +
                              f"<i>{self._get_structure_description(struct_type)}</i><extra></extra>",
                 showlegend=False
             ))
             
-            # Add clean structure label
-            fig.add_annotation(
-                x=timestamp, 
-                y=marker_y_position,
-                text=f"<b>{struct_type}</b><br>@{price:.5f}", 
-                showarrow=True, 
-                arrowhead=2, 
-                arrowcolor=color,
-                ax=0, 
-                ay=arrow_y_offset,
-                bgcolor=color, 
-                font=dict(color='white', size=10), 
-                borderpad=4,
-                bordercolor='white',
-                borderwidth=1
-            )
+            if show_labels:
+                # Add clean structure label
+                fig.add_annotation(
+                    x=timestamp, 
+                    y=marker_y_position,
+                    text=f"<b>{struct_type}</b><br>@{price:.5f}", 
+                    showarrow=True, 
+                    arrowhead=2, 
+                    arrowcolor=color,
+                    ax=0, 
+                    ay=arrow_y_offset,
+                    bgcolor=color, 
+                    font=dict(color='white', size=10), 
+                    borderpad=4,
+                    bordercolor='white',
+                    borderwidth=1
+                )
             
             # Connect structure points of same type with lines
             # if i > 0:
@@ -533,7 +538,8 @@ class StructureTrendPlotter:
                         color='rgba(0, 128, 0, 0.5)' if swing_types[i] == -1 else 'rgba(255, 0, 0, 0.5)',
                         width=2
                     ),
-                    showlegend=False
+                    showlegend=False,
+                    hovertemplate="X: %{x}, Y: %{y}<extra></extra>",
                 )
         )
         
@@ -541,8 +547,10 @@ class StructureTrendPlotter:
         total_points = sum(structure_counts.values())
         bullish_bias = ((structure_counts['HH'] + structure_counts['HL']) / total_points * 100) if total_points > 0 else 0
         
+        len_of_df = len(df_std)
+        relative_x_pos = int(len_of_df * 0.1)
         fig.add_annotation(
-            x=df_std.index[200],
+            x=df_std.index[relative_x_pos],
             y=df_std['High'].max(), #if df_std['High'][-1] < 0.8 * df_std['High'].max() else 0.7 * df_std['High'].max(),
             text=f"<b>📈 STRUCTURE</b><br>" +
                  #f"Trend: {trend.upper()}<br>" +

@@ -219,8 +219,8 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
             "HighLow": highlow,
             "Level": level,
             "Direction": direction,
-            "CurrentRetracement%": current_retracement,
-            "DeepestRetracement%": deepest_retracement
+            "CurrentRetracement": current_retracement,
+            "DeepestRetracement": deepest_retracement
         }, index=ohlc.index)
 
 def do_highlow_classification(df: pd.DataFrame) -> pd.DataFrame:
@@ -233,18 +233,18 @@ def do_highlow_classification(df: pd.DataFrame) -> pd.DataFrame:
     last_high: Optional[Dict] = None
     last_low: Optional[Dict] = None
 
-    for timestamp, *rows in structure.itertuples():
-        price = rows[1]
-        point_type = rows[0]
-        
+    for rows in structure.itertuples():
+        price = rows.Level
+        point_type = rows.HighLow
+        timestamp = rows.Index
         classification = None
         if point_type == 1:  # point_type == 'high'
             if last_high:
-                classification = "HH" if price > last_high['price'] else "LH"
+                classification = "HH" if price >= last_high['price'] else "LH"
             last_high = {'timestamp': timestamp, 'price': price}
         elif point_type == -1: # point_type == 'low'
             if last_low:
-                classification = "HL" if price > last_low['price'] else "LL"
+                classification = "HL" if price >= last_low['price'] else "LL"
             last_low = {'timestamp': timestamp, 'price': price}
         else:
             print("Unexpected HighLow type:", point_type)
@@ -253,7 +253,7 @@ def do_highlow_classification(df: pd.DataFrame) -> pd.DataFrame:
             classification_series.at[timestamp] = classification
 
 
-    df['Classification'] = classification_series  
+    df.insert(loc=2, column='Classification', value=classification_series) 
     return df
 
 def enforce_alternating_swings(df: pd.DataFrame) -> pd.DataFrame:
@@ -263,10 +263,11 @@ def enforce_alternating_swings(df: pd.DataFrame) -> pd.DataFrame:
     
     Works vectorized for performance.
     """
+    df_origin = df
     df = df.sort_index().copy().dropna()
 
     # Extract arrays for vectorized processing
-    types = df['HighLow'].values.astype(int)
+    types = df['HighLow'].values.astype(float)
     levels = df['Level'].values.astype(float)
 
     # Identify indices where the swing type changes (1 → -1 or -1 → 1)
@@ -276,7 +277,8 @@ def enforce_alternating_swings(df: pd.DataFrame) -> pd.DataFrame:
     group_ids = np.cumsum(change_mask) - 1
 
     # Aggregate per segment: choose the most extreme level
-    keep_indices = []
+    # keep_indices = []
+    delete_indices = []
     for g in np.unique(group_ids):
         segment_idx = np.where(group_ids == g)[0]
         seg_type = types[segment_idx[0]]
@@ -284,16 +286,153 @@ def enforce_alternating_swings(df: pd.DataFrame) -> pd.DataFrame:
         if seg_type == 1:
             # For highs: keep the highest price
             best_idx = segment_idx[np.argmax(levels[segment_idx])]
+            delete_indices.extend(idx for idx in segment_idx if idx != best_idx)
         else:
             # For lows: keep the lowest price
             best_idx = segment_idx[np.argmin(levels[segment_idx])]
-        keep_indices.append(best_idx)
+            delete_indices.extend(idx for idx in segment_idx if idx != best_idx)
+        # keep_indices.append(best_idx)
 
     # Build filtered DataFrame
-    cleaned_df = df.iloc[keep_indices]
-    cleaned_df = cleaned_df.sort_index()  # ensure chronological order
+    to_clean = df.iloc[delete_indices]
+    
+    df_origin.loc[to_clean.index, :] = np.nan
 
-    return cleaned_df
+    return df_origin
+
+
+def add_retracements(ohlc: pd.DataFrame, swing_highs_lows: pd.DataFrame, only_swing_points: bool = True) -> pd.DataFrame:
+    """
+    Retracement
+    This method returns the percentage of a retracement from the swing high or low
+
+    parameters:
+    swing_highs_lows: DataFrame - provide the dataframe from the swing_highs_lows function
+
+    returns:
+    Direction = 1 if bullish retracement, -1 if bearish retracement
+    CurrentRetracement = the current retracement percentage from the swing high or low
+    DeepestRetracement = the deepest retracement percentage from the swing high or low
+    """
+    if only_swing_points:
+        ohlc = swing_highs_lows.dropna()
+
+    direction = pd.Series(index=ohlc.index, dtype="int")
+    current_retracement = pd.Series(index=ohlc.index, dtype="float")
+    deepest_retracement = pd.Series(index=ohlc.index, dtype="float")
+
+    top_current = 0
+    top_previous = 0
+    bottom_current = 0
+    bottom_previous = 0
+
+    remove_first_count = 0
+
+    for i, ts in enumerate(ohlc.index):
+
+        if not only_swing_points:
+        
+            if swing_highs_lows["HighLow"].at[ts] == 1:
+                if remove_first_count < 1:
+                    top_previous = top_current = swing_highs_lows["Level"].at[ts]
+                    remove_first_count += 1
+                    direction.iloc[i] = direction.iloc[i - 1] if i > 0 else 0
+                else:
+                    top_previous, top_current = top_current, swing_highs_lows["Level"].at[ts]  
+                    # print( top_previous, top_current)
+                    direction.iloc[i] = 1
+                
+                # deepest_retracement[i] = 0
+            elif swing_highs_lows["HighLow"].at[ts] == -1:
+                if remove_first_count < 1:
+                    bottom_previous = bottom_current = swing_highs_lows["Level"].at[ts]
+                    remove_first_count += 1
+                    direction.iloc[i] = direction.iloc[i - 1] if i > 0 else 0
+                else:
+                    bottom_previous, bottom_current = bottom_current, swing_highs_lows["Level"].at[ts]
+                    # print( bottom_previous, bottom_current)
+                    direction.iloc[i] = -1
+                # deepest_retracement[i] = 0
+            else:
+                direction.iloc[i] = direction.iloc[i - 1] if i > 0 else 0
+
+            if direction.iloc[i - 1] == 1:
+                if direction.iloc[i] == 1:
+                    current_retracement.iloc[i] = round(
+                        100 - (((ohlc["Low"].at[ts] - bottom_current) / (top_current - bottom_current)) * 100), 1
+                    )
+                else:
+                    current_retracement.iloc[i] = round(
+                        100 - (((ohlc["Low"].at[ts] - bottom_previous) / (top_current - bottom_previous)) * 100), 1
+                    )
+                deepest_retracement.iloc[i] = max(
+                    (
+                        deepest_retracement.iloc[i - 1]
+                        if i > 0 and direction.iloc[i - 2] == 1
+                        else 0
+                    ),
+                    current_retracement.iloc[i],
+                )
+            if direction.iloc[i - 1] == -1:
+                if direction.iloc[i] == -1:
+                    current_retracement.iloc[i] = round(
+                        100 - ((ohlc["High"].at[ts] - top_current) / (bottom_current - top_current)) * 100, 1
+                    )
+                else:
+                    current_retracement.iloc[i] = round(
+                        100 - ((ohlc["High"].at[ts] - top_previous) / (bottom_current - top_previous)) * 100, 1
+                    )
+
+                deepest_retracement.iloc[i] = max(
+                    (
+                        deepest_retracement.iloc[i - 1]
+                        if i > 0 and direction.iloc[i - 2] == -1
+                        else 0
+                    ),
+                    current_retracement.iloc[i],
+                )
+        else:
+            if swing_highs_lows["HighLow"].at[ts] == 1:
+                top_previous, top_current = top_current, swing_highs_lows["Level"].at[ts]  
+                direction.iloc[i] = 1
+            elif swing_highs_lows["HighLow"].at[ts] == -1:
+                bottom_previous, bottom_current = bottom_current, swing_highs_lows["Level"].at[ts]
+                direction.iloc[i] = -1
+
+            if direction.iloc[i - 1] == 1:
+                current_retracement.iloc[i] = round(
+                    100 - (((bottom_current - bottom_previous) / (top_current - bottom_previous)) * 100), 1
+                )
+                deepest_retracement.iloc[i] = max(
+                    (
+                        deepest_retracement.iloc[i - 1]
+                        if i > 0 and direction.iloc[i - 2] == 1
+                        else 0
+                    ),
+                    current_retracement.iloc[i],
+                )
+            if direction.iloc[i - 1] == -1:
+                current_retracement.iloc[i] = round(
+                    100 - ((top_current - top_previous) / (bottom_current - top_previous)) * 100, 1
+                )
+
+                deepest_retracement.iloc[i] = max(
+                    (
+                        deepest_retracement.iloc[i - 1]
+                        if i > 0 and direction.iloc[i - 2] == -1
+                        else 0
+                    ),
+                    current_retracement.iloc[i],
+                )
+
+    direction = pd.Series(direction, name="Direction")
+    current_retracement = pd.Series(current_retracement, name="CurrentRetracement")
+    deepest_retracement = pd.Series(deepest_retracement, name="DeepestRetracement")
+    swing_highs_lows['Direction'] = direction
+    swing_highs_lows['CurrentRetracement'] = current_retracement
+    swing_highs_lows['DeepestRetracement'] = deepest_retracement
+
+    return swing_highs_lows
 
 
 def get_market_analysis(df: pd.DataFrame, prominence_factor: float = 7.5, trend_window: int = 10) -> Dict:
@@ -324,17 +463,20 @@ def get_market_analysis(df: pd.DataFrame, prominence_factor: float = 7.5, trend_
         "swing_lows": list(swing_lows.reset_index().to_records(index=False))
     }
 
-def analyse_market_structure(df: pd.DataFrame, swing_length: int = 10, trend_window: int = 10, based_on_atr = False) -> pd.DataFrame:
+def analyse_market_structure(df: pd.DataFrame, swing_length: int = 10, trend_window: int = 10, prominence_factor: float = 7.5, based_on_atr = True) -> pd.DataFrame:
     """
     Main function to get market structure and confirm the current trend.
     """
     if not based_on_atr:
         swing_highs_lows = detect_swing_points_by_retracement(df, swing_length=swing_length, minimum_retracement=50.0)
     else:
-        swing_highs_lows, _ = detect_swing_points_by_atr(df, prominence_factor=7.5)
-
-    swing_highs_lows = do_highlow_classification(swing_highs_lows)
+        swing_highs_lows, _ = detect_swing_points_by_atr(df, prominence_factor=prominence_factor)
+    
     swing_highs_lows = enforce_alternating_swings(swing_highs_lows)
+    swing_highs_lows = do_highlow_classification(swing_highs_lows)
+    
+    if not "Direction" in swing_highs_lows.columns or not "CurrentRetracement" in swing_highs_lows.columns or not "DeepestRetracement" in swing_highs_lows.columns:
+        swing_highs_lows = add_retracements(df, swing_highs_lows, only_swing_points=True)
 
     return swing_highs_lows
 
