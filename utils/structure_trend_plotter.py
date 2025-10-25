@@ -1,8 +1,10 @@
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from typing import List, Dict, Optional, Tuple
 from core.structure_builder import build_market_structure, detect_swing_points_scipy, get_market_analysis
 from core.trend_detector import detect_swing_points, detect_trend, get_trend_from_data
+
 
 class StructureTrendPlotter:
     """
@@ -35,12 +37,24 @@ class StructureTrendPlotter:
 
     def _create_base_chart(self, df: pd.DataFrame, title: str, symbol: str) -> go.Figure:
         """Creates the base candlestick figure - Matching level_plotter.py style"""
+        df["numeric_index"] = range(len(df))
+        df['hover_text'] = df.index.strftime('%Y-%m-%d %H:%M:%S') + \
+                    "<br>Open: " + df['Open'].astype(str) + \
+                    "<br>High: " + df['High'].astype(str) + \
+                    "<br>Low: " + df['Low'].astype(str) + \
+                    "<br>Close: " + df['Close'].astype(str)
+
+
+
         fig = go.Figure(data=go.Candlestick(
-            x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
+            x=df['numeric_index'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
             name="", increasing_line_color='#77dd76', decreasing_line_color='#ef5350',
-        ))
+            customdata=df.index, # datetime index for hover
+
+            hoverinfo="text"))
         fig.update_layout(
-            title=title, template="plotly_dark", height=900,
+            title=title, template="plotly_dark", 
+            height=900,
             xaxis_rangeslider_visible=False, showlegend=True,
             margin=dict(l=0, r=0, b=0),
             legend=dict(
@@ -49,14 +63,37 @@ class StructureTrendPlotter:
                 y=1.02,
                 xanchor="right",
                 x=1
-            )
+            ),
+            hovermode='closest',  # zeigt nur den Punkt unter dem Cursor
+            xaxis=dict(showspikes=False),
+            yaxis=dict(showspikes=False)
+            # xaxis=dict(
+            #     showspikes=True,
+            #     spikemode='across',      
+            #     spikecolor='lightgray',   
+            #     spikethickness=0.5,       
+            #     spikesnap='cursor',
+            #     layer='below traces'     
+            # ),
+            # yaxis=dict(
+            #     showspikes=True,
+            #     spikemode='across',
+            #     spikecolor='lightgray',
+            #     spikethickness=0.5,
+            #     spikesnap='cursor',
+            #     layer='below traces'
+            # )
         )
         fig.update_xaxes(visible=True, showticklabels=True, 
-                 rangebreaks=[dict(bounds=["sat", "mon"])],
-                 dtick="86400000", # one day in milliseconds
-                    tickformat="%d %b\n%Y",
-                    hoverformat="%Y-%m-%d %H:%M:%S"
-                 )
+                         tickvals=df["numeric_index"][::max(1, len(df)//20)],  # 20 Ticks max
+                        ticktext=[d.strftime("%Y-%m-%d %H:%M") for d in df.index[::max(1, len(df)//20)]],
+                        tickangle=45, 
+                        title_text="Time",
+                        hoverformat="%Y-%m-%d %H:%M:%S"
+                        )
+        
+        fig.update_traces(hoverinfo="text", hovertext=df['hover_text'])
+
         fig.update_yaxes(visible=True, showticklabels=True, dtick=0.005)
         return fig
 
@@ -412,7 +449,7 @@ class StructureTrendPlotter:
         Chart: Market Structure Detection - Matching BOS/CHOCH chart style
         """
 
-        # Standardize DataFrame
+        # Standardize and copy DataFrame
         df_std = self.standardize_dataframe(df)
 
         # Create base chart matching level_plotter.py style
@@ -420,6 +457,8 @@ class StructureTrendPlotter:
         fig = go.Figure()
         # Create base chart matching level_plotter.py style
         fig = self._create_base_chart(df_std, f"{symbol} {timeframe} - Market Structure Analysis (HH/HL/LH/LL)", symbol)
+        date_to_num = dict(zip(df_std.index, df_std["numeric_index"]))
+        num_to_date = dict(zip(df_std["numeric_index"], df_std.index))
 
         # Process structure points with BOS/CHOCH styling
         structure_counts = {'HH': 0, 'HL': 0, 'LH': 0, 'LL': 0}
@@ -459,7 +498,7 @@ class StructureTrendPlotter:
 
             # Add structure point marker
             fig.add_trace(go.Scatter(
-                x=[timestamp], 
+                x=[date_to_num[timestamp]], 
                 y=[marker_y_position], 
                 mode='markers',
                 marker=dict(
@@ -480,7 +519,7 @@ class StructureTrendPlotter:
             if show_labels:
                 # Add clean structure label
                 fig.add_annotation(
-                    x=timestamp, 
+                    x=date_to_num[timestamp], 
                     y=marker_y_position,
                     text=f"<b>{struct_type}</b><br>@{price:.5f}", 
                     showarrow=True, 
@@ -533,9 +572,10 @@ class StructureTrendPlotter:
 
         # Draw lines between consecutive swings
         for i in range(len(swings) - 1):
+            date = swing_dates[i]
             fig.add_trace(
                 go.Scatter(
-                    x=[swing_dates[i], swing_dates[i + 1]],
+                    x=[date_to_num[swing_dates[i]], date_to_num[swing_dates[i + 1]]],
                     y=[swing_levels[i], swing_levels[i + 1]],
                     mode='lines',
                     line=dict(
@@ -543,7 +583,8 @@ class StructureTrendPlotter:
                         width=2
                     ),
                     showlegend=False,
-                    hovertemplate="X: %{x}, Y: %{y}<extra></extra>",
+                    customdata=[swing_dates[i]],
+                    hovertemplate="X: %{customdata}, Y: %{y}<extra></extra>",
                 )
         )
         
@@ -553,8 +594,9 @@ class StructureTrendPlotter:
         
         len_of_df = len(df_std)
         relative_x_pos = int(len_of_df * 0.1)
+        print(relative_x_pos)
         fig.add_annotation(
-            x=df_std.index[relative_x_pos],
+            x=date_to_num[df_std.index[relative_x_pos]],
             y=df_std['High'].max(), #if df_std['High'][-1] < 0.8 * df_std['High'].max() else 0.7 * df_std['High'].max(),
             text=f"<b>📈 STRUCTURE</b><br>" +
                  #f"Trend: {trend.upper()}<br>" +

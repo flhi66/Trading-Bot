@@ -227,7 +227,7 @@ class MarketStructureAnalyzer:
         # Normalize quality score (0-4 scale)
         normalized_quality = quality_score / 4.0
         
-        return min(1.0, max(0.1, base_confidence)), normalized_quality
+        return min(1.0, max(0.1, base_confidence)), normalized_quality # type: ignore
 
     def _validate_bos_pattern(self, current: StructurePoint, previous_extreme: StructurePoint, 
                             intermediate: StructurePoint) -> bool:

@@ -215,7 +215,6 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
                                                     (level[swing_highs_lows[-1]] - level[swing_highs_lows[-2]])) * 100, 2)
                 deepest_retracement[i] = max(deepest_retracement[i - 1], current_retracement[i])
 
-        print(deepest_retracement)
         return pd.DataFrame({
             "HighLow": highlow,
             "Level": level,
