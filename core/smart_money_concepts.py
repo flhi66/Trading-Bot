@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import List, Dict, Literal, Optional
+from typing import List, Dict, Literal, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
@@ -14,11 +14,18 @@ class EventType(Enum):
     BOS = "BOS"
     CHOCH = "CHOCH"
 
+class StructureType(Enum):
+    SUPPORT = "Support"
+    RESISTANCE = "Resistance"
+    NONE = None
+
 @dataclass
 class StructurePoint:
     timestamp: pd.Timestamp
     price: float
     swing_type: SwingType
+    structure_type: StructureType = StructureType.NONE
+    strong: bool = False 
     retracement: Optional[float] = None  # Optional retracement value
 
 @dataclass
@@ -132,15 +139,63 @@ class MarketStructureAnalyzer:
         
         return "sideways"
     
-    def _get_trend_state_window(self, structure: List[StructurePoint]) -> Literal["uptrend", "downtrend", "sideways"]:
+    def _find_last_strong_swing(self, structure: List[StructurePoint], swing_type: SwingType | Tuple[SwingType], before_index: int) -> Optional[StructurePoint]:
+        """Find the most recent strong swing of specified type before given index"""
+        if type(swing_type) == SwingType:
+            swing_type = (swing_type, )
+        for i in range(before_index - 1, -1, -1):
+            if structure[i].swing_type in swing_type and structure[i].strong: # type: ignore
+                return structure[i]
+        return None
+    
+    def _find_last_structure_level(self, structure: List[StructurePoint], structure_type: StructureType, before_index: int) -> Optional[StructurePoint]:
+        """Find the most recent structure level (Support/Resistance) before given index"""
+        for i in range(before_index - 1, -1, -1):
+            if structure[i].structure_type == structure_type:
+                return structure[i]
+        return None
+    
+    def _get_trend_state_window(self, structure: List[StructurePoint], current_index: int) -> Literal["uptrend", "downtrend", "sideways"]:
         """Enhanced trend detection with better pattern recognition and CHOCH responsiveness"""
 
+        if current_index < 3:
+            return "sideways"
+        
         # Look at recent swings - use a more flexible lookback
-        recent_swings = structure
-        print(f"Recent Swings for Trend Detection: {[s.swing_type.value for s in recent_swings]}")  # Debug print
+        lookback = min(4, current_index)  # Increased lookback for better trend detection
+        recent_swings = structure[max(0, current_index - lookback):current_index]
+        
         if len(recent_swings) < 2:
             return "sideways"
+        
+        # print(f"Recent Swings for Trend Detection: {[s.swing_type.value for s in recent_swings]}")  # Debug print
 
+        last_support = self._find_last_structure_level(structure, StructureType.SUPPORT, current_index -1)
+        last_resistance = self._find_last_structure_level(structure, StructureType.RESISTANCE, current_index -1)
+
+        # print(f"Last Support: {last_support}, Last Resistance: {last_resistance}")  # Debug print
+        
+        # Check for recent CHOCH events that should override trend calculation
+        # Look for recent LL breaking below HL (bearish CHOCH) or HH breaking above LH (bullish CHOCH)
+        for i in range(len(recent_swings) - 1, 1, -1):
+            current_swing = recent_swings[i]
+            prev_swing = recent_swings[i-1]
+            prev_prev_swing = recent_swings[i-2]
+            
+
+            # Bearish CHOCH: LL breaking below HL
+            if (current_swing.swing_type == SwingType.LL and 
+                (last_support.price > current_swing.price) if last_support is not None else True):
+                # Recent bearish CHOCH detected - trend should be downtrend
+                # print("Bearish CHOCH detected in trend analysis")  # Debug print
+                return "downtrend"
+            
+            # Bullish CHOCH: HH breaking above LH
+            if (current_swing.swing_type == SwingType.HH and 
+                (last_resistance.price < current_swing.price) if last_resistance is not None else True): 
+                # Recent bullish CHOCH detected - trend should be uptrend
+                # print("Bullish CHOCH detected in trend analysis")  # Debug print
+                return "uptrend"
 
         bullish_count = sum(p.swing_type.value in ("HH", "HL") for p in recent_swings)
         bearish_count = sum(p.swing_type.value in ("LL", "LH") for p in recent_swings)
@@ -389,34 +444,67 @@ class MarketStructureAnalyzer:
         
         return False
     
+    def _qualify_structure(self, structure: List[StructurePoint]):
+        """Qualify structure points as strong or weak based on retracement and pattern quality"""
+        last_support = None
+        last_resistance = None
+
+        for point in structure:
+            current_index = structure.index(point)
+           
+            if not current_index == len(structure) - 1:
+                next_point = structure[current_index + 1]
+
+                if next_point.swing_type == SwingType.HH:
+                    if (next_point.price > last_resistance.price if last_resistance is not None else True):
+                        last_resistance = next_point
+                        next_point.structure_type = StructureType.RESISTANCE
+                        point.strong = True
+                        last_support = point
+                        point.structure_type = StructureType.SUPPORT
+
+                elif next_point.swing_type == SwingType.LL:
+                    if (next_point.price < last_support.price if last_support is not None else True):
+                        last_support = next_point
+                        next_point.structure_type = StructureType.SUPPORT
+                        point.strong = True
+                        last_resistance = point
+                        point.structure_type = StructureType.RESISTANCE
+
+
     def analyse_market_events(self, structure_data: pd.DataFrame) -> List[MarketEvent]:
         """Enhanced market event detection with improved pattern recognition"""
         if len(structure_data) < 4:
             return []
         
-        structure = [StructurePoint(pd.Timestamp(row.Index), row.Level, SwingType(row.Classification), row.Retracement)  # type: ignore
+        structure = [StructurePoint(timestamp=pd.Timestamp(row.Index),          # type: ignore
+                                    price=row.Level,                            # type: ignore
+                                    swing_type=SwingType(row.Classification), 
+                                    retracement=row.Retracement)                # type: ignore
                     for row in structure_data.itertuples()]
-    
+        
+        self._qualify_structure(structure)
+        
         events = []
 
         for i in range(2, len(structure)):  # Start from index 2 for better pattern validation
-            print("###")
             current = structure[i]
-            trend_before = self._get_trend_state_window(structure[i-4:i]) if i >= 4 else "sideways"
+            trend_before = self._get_trend_state_window(structure, i) 
             
             # Debug print (remove in production)
-            print(f"Index {i}: {current.swing_type} @ {current.price:.5f} - Trend: {trend_before}")
+            print(f"Index {i}: {current.swing_type} @ {current.price:.5f} - Trend before: {trend_before}")
             
             # --- CHOCH Detection (Priority over BOS) ---
             choch_detected = False
-            
+            return structure # for this commit only, so plotting will work
             # More aggressive CHOCH detection for trend changes
             if trend_before == "uptrend":
                 # Any lower swing breaking previous support in uptrend = CHOCH
-                if current.swing_type in [SwingType.LL, SwingType.LH]:
+                if current.swing_type == SwingType.LL:
                     # Find the most recent HL (support level in uptrend)
-                    last_hl = self._find_last_swing(structure, SwingType.HL, i)
+                    last_hl = self._find_last_strong_swing(structure, SwingType.HL, i)
                     if last_hl and current.price < last_hl.price:
+                        print(f"Potential Bearish CHOCH at Index {i}: {current.swing_type.value} @ {current.price:.5f} breaking HL @ {last_hl.price:.5f}")  # Debug print
                         # This is a CHOCH - trend change from bullish to bearish
                         qml_level = self._find_last_swing(structure, SwingType.HH, i)
                         if qml_level:
@@ -442,10 +530,11 @@ class MarketStructureAnalyzer:
             
             elif trend_before == "downtrend":
                 # Any higher swing breaking previous resistance in downtrend = CHOCH  
-                if current.swing_type in [SwingType.HH, SwingType.HL]:
+                if current.swing_type == SwingType.HH:
                     # Find the most recent LH (resistance level in downtrend)
-                    last_lh = self._find_last_swing(structure, SwingType.LH, i)
+                    last_lh = self._find_last_strong_swing(structure, SwingType.LH, i)
                     if last_lh and current.price > last_lh.price:
+                        print(f"Potential Bullish CHOCH at Index {i}: {current.swing_type.value} @ {current.price:.5f} breaking LH @ {last_lh.price:.5f}")  # Debug print
                         # This is a CHOCH - trend change from bearish to bullish
                         qml_level = self._find_last_swing(structure, SwingType.LL, i)
                         if qml_level:

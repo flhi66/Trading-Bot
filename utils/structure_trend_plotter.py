@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from typing import List, Dict, Optional, Tuple
+from core.smart_money_concepts import StructurePoint
 from core.structure_builder import build_market_structure, detect_swing_points_scipy, get_market_analysis
 from core.trend_detector import detect_swing_points, detect_trend, get_trend_from_data
 
@@ -38,6 +39,7 @@ class StructureTrendPlotter:
     def _create_base_chart(self, df: pd.DataFrame, title: str, symbol: str) -> go.Figure:
         """Creates the base candlestick figure - Matching level_plotter.py style"""
         df["numeric_index"] = range(len(df))
+        df.index = pd.to_datetime(df.index)
         df['hover_text'] = df.index.strftime('%Y-%m-%d %H:%M:%S') + \
                     "<br>Open: " + df['Open'].astype(str) + \
                     "<br>High: " + df['High'].astype(str) + \
@@ -443,12 +445,12 @@ class StructureTrendPlotter:
         
         return fig
 
-    def plot_structure(self, df: pd.DataFrame, structure: pd.DataFrame, symbol: str = "SYMBOL", timeframe: str = "15Min",
+    def plot_structure(self, df: pd.DataFrame, structure: pd.DataFrame, events: List[StructurePoint] | None = None, symbol: str = "SYMBOL", timeframe: str = "15Min",
                        show_labels: bool = False) -> go.Figure:
         """
         Chart: Market Structure Detection - Matching BOS/CHOCH chart style
         """
-
+        print(type(events))
         # Standardize and copy DataFrame
         df_std = self.standardize_dataframe(df)
 
@@ -459,6 +461,8 @@ class StructureTrendPlotter:
         fig = self._create_base_chart(df_std, f"{symbol} {timeframe} - Market Structure Analysis (HH/HL/LH/LL)", symbol)
         date_to_num = dict(zip(df_std.index, df_std["numeric_index"]))
         num_to_date = dict(zip(df_std["numeric_index"], df_std.index))
+        sp_by_timestamp = {sp.timestamp: sp for sp in events } if events is not None else {}
+
 
         # Process structure points with BOS/CHOCH styling
         structure_counts = {'HH': 0, 'HL': 0, 'LH': 0, 'LL': 0}
@@ -512,6 +516,8 @@ class StructureTrendPlotter:
                              f"Price: {price:.5f}<br>" +
                              f"Time: {timestamp}<br>" +
                              f"Retracement: {retracement:.2f}%<br>" +
+                             f"Structure Type: {sp_by_timestamp[timestamp].structure_type.value if events is not None else 'Missing events'} <br>" + # type: ignore
+                             f"Strong: {sp_by_timestamp[timestamp].strong if events is not None else 'Missing events'} <br>" +
                              f"<i>{self._get_structure_description(struct_type)}</i><extra></extra>",
                 showlegend=False
             ))
