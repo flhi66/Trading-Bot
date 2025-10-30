@@ -9,6 +9,7 @@ class SwingType(Enum):
     HL = "HL"
     LH = "LH"
     LL = "LL"
+    ND = "ND"
 
 class EventType(Enum):
     BOS = "BOS"
@@ -170,18 +171,18 @@ class MarketStructureAnalyzer:
         
         # print(f"Recent Swings for Trend Detection: {[s.swing_type.value for s in recent_swings]}")  # Debug print
 
-        last_support = self._find_last_structure_level(structure, StructureType.SUPPORT, current_index -1)
-        last_resistance = self._find_last_structure_level(structure, StructureType.RESISTANCE, current_index -1)
+        
 
         # print(f"Last Support: {last_support}, Last Resistance: {last_resistance}")  # Debug print
         
         # Check for recent CHOCH events that should override trend calculation
         # Look for recent LL breaking below HL (bearish CHOCH) or HH breaking above LH (bullish CHOCH)
-        for i in range(len(recent_swings) - 1, 1, -1):
+        for i in range(len(recent_swings) - 1, -1, -1):
             current_swing = recent_swings[i]
-            prev_swing = recent_swings[i-1]
-            prev_prev_swing = recent_swings[i-2]
-            
+            # prev_swing = recent_swings[i-1]
+            # prev_prev_swing = recent_swings[i-2]
+            last_support = self._find_last_structure_level(structure, StructureType.SUPPORT, structure.index(current_swing))
+            last_resistance = self._find_last_structure_level(structure, StructureType.RESISTANCE, structure.index(current_swing))
 
             # Bearish CHOCH: LL breaking below HL
             if (current_swing.swing_type == SwingType.LL and 
@@ -496,7 +497,7 @@ class MarketStructureAnalyzer:
             
             # --- CHOCH Detection (Priority over BOS) ---
             choch_detected = False
-            return structure # for this commit only, so plotting will work
+            
             # More aggressive CHOCH detection for trend changes
             if trend_before == "uptrend":
                 # Any lower swing breaking previous support in uptrend = CHOCH
@@ -637,7 +638,7 @@ class MarketStructureAnalyzer:
             
             if not is_duplicate:
                 filtered_events.append(event)
-
+        return structure # for this commit only, so plotting will work
         return filtered_events
 
     def get_market_events(self, structure_data: List[Dict]) -> List[MarketEvent]:

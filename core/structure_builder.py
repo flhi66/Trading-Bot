@@ -123,28 +123,41 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
             window_high = highs[i - swing_length : i+1]
             window_low = lows[i - swing_length : i+1]
 
-            if expect is None:
-                # Initialisierung: erstes Extremum suchen
-                if highs[i] == np.max(window_high):
-                    highlow[i] = 1
-                    level[i] = highs[i]
-                    direction[i] = 1
-                    expect = 'low'
-                    # print("Initial Swing High at index", i)
-                    highlow[0] = -1
-                    level[0] = lows[0]
-                    direction[0:i] = -1
-                elif lows[i] == np.min(window_low):
-                    highlow[i] = -1
-                    level[i] = lows[i]
-                    direction[i] = -1
-                    expect = 'high'
-                    # print("Initial Swing Low at index", i)
-                    highlow[0] = 1
-                    level[0] = highs[0]
-                    direction[0:i] = 1
+            if len(np.where(~np.isnan(highlow))[0]) < 2:
+                if expect is None:
+                    for j in range(i+1 - swing_length, i):
+                        if highs[j] == np.max(window_high):
+                            highlow[j] = 1
+                            level[j] = highs[j]
+                            direction[j] = 1
+                            expect = 'low'
+                            # print("Initial Swing High at index", j)
+                            current_retracement[j] = 0.0
+                            deepest_retracement[j] = 0.0
+                            if j > 0:
+                                highlow[0] = -1
+                                level[0] = lows[0]
+                                direction[0:j] = -1
+                                current_retracement[0] = 0.0
+                                deepest_retracement[0] = 0.0
+                            break
+                        elif lows[j] == np.min(window_low):
+                            highlow[j] = -1
+                            level[j] = lows[j]
+                            direction[j] = -1
+                            expect = 'high'
+                            # print("Initial Swing Low at index", j)
+                            current_retracement[j] = 0.0
+                            deepest_retracement[j] = 0.0
+                            if j > 0:
+                                highlow[0] = 1
+                                level[0] = highs[0]
+                                direction[0:j] = 1
+                                current_retracement[0] = 0.0
+                                deepest_retracement[0] = 0.0
+                            break
                 continue
-            
+        
             swing_highs_lows = np.where(~np.isnan(highlow))[0]
             if len(swing_highs_lows) < 2:
                 continue
@@ -155,7 +168,7 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
                                   (level[swing_highs_lows[-1]] - level[swing_highs_lows[-2]])) * 100, 2)
                     deepest_retracement[i] = max(deepest_retracement[i - 1], current_retracement[i])
                     if current_retracement[i] >= minimum_retracement:
-                        highlow[i] = 1
+                        highlow[i] = 1.0
                         level[i] = highs[i]
                         direction[i] = 1
                         expect = 'low'
@@ -167,15 +180,19 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
                     if highs[i] >= level[swing_highs_lows[-1]]:
                         highlow[swing_highs_lows[-1]] = np.nan
                         level[swing_highs_lows[-1]] = np.nan
-                        highlow[i] = 1
+                        highlow[i] = 1.0
                         level[i] = highs[i]
                     direction[i] = 1
                     swing_highs_lows = np.where(~np.isnan(highlow))[0]
                     if len(swing_highs_lows) < 3:
+                        current_retracement[i] = 0.0
+                        deepest_retracement[i] = 0.0
                         continue
                     current_retracement[i] = round(100 - ((highs[i] - level[swing_highs_lows[-3]]) / 
                                                     (level[swing_highs_lows[-2]] - level[swing_highs_lows[-3]])) * 100, 2)
                     deepest_retracement[i] = 0.0 #if deepest_retracement[i - 1] is np.nan else deepest_retracement[i - 1]
+                
+                    
 
 
             elif lows[i] == np.min(window_low):
@@ -184,7 +201,7 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
                                   (level[swing_highs_lows[-1]] - level[swing_highs_lows[-2]])) * 100, 2)
                     deepest_retracement[i] = max(deepest_retracement[i - 1], current_retracement[i])
                     if current_retracement[i] >= minimum_retracement:
-                        highlow[i] = -1
+                        highlow[i] = -1.0
                         level[i] = lows[i]
                         direction[i] = -1
                         expect = 'high'
@@ -195,11 +212,13 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
                     if lows[i] <= level[swing_highs_lows[-1]]:
                         highlow[swing_highs_lows[-1]] = np.nan
                         level[swing_highs_lows[-1]] = np.nan
-                        highlow[i] = -1
+                        highlow[i] = -1.0
                         level[i] = lows[i]
                     direction[i] = -1
                     swing_highs_lows = np.where(~np.isnan(highlow))[0]
                     if len(swing_highs_lows) < 3:
+                        current_retracement[i] = 0.0
+                        deepest_retracement[i] = 0.0
                         continue
                     current_retracement[i] = round(100 - ((lows[i] - level[swing_highs_lows[-3]]) / 
                                                     (level[swing_highs_lows[-2]] - level[swing_highs_lows[-3]])) * 100, 2)
@@ -213,6 +232,8 @@ def detect_swing_points_by_retracement(ohlc: pd.DataFrame, swing_length: int = 5
                 elif expect == 'low':
                     current_retracement[i] = round(100 - ((lows[i] - level[swing_highs_lows[-2]]) / 
                                                     (level[swing_highs_lows[-1]] - level[swing_highs_lows[-2]])) * 100, 2)
+                else:
+                    current_retracement[i] = 0.0
                 deepest_retracement[i] = max(deepest_retracement[i - 1], current_retracement[i])
 
         return pd.DataFrame({
@@ -251,6 +272,8 @@ def do_highlow_classification(df: pd.DataFrame) -> pd.DataFrame:
         
         if classification:
             classification_series.at[timestamp] = classification
+        else:
+            classification_series.at[timestamp] = "ND"
 
 
     df.insert(loc=2, column='Classification', value=classification_series) 
@@ -270,6 +293,10 @@ def enforce_alternating_swings(df: pd.DataFrame) -> pd.DataFrame:
     types = df['HighLow'].values.astype(float)
     levels = df['Level'].values.astype(float)
 
+    if len(types) == 0:
+        print("No swing points detected.")
+        return df_origin
+
     # Identify indices where the swing type changes (1 → -1 or -1 → 1)
     change_mask = np.concatenate(([True], types[1:] != types[:-1]))
 
@@ -280,7 +307,10 @@ def enforce_alternating_swings(df: pd.DataFrame) -> pd.DataFrame:
     # keep_indices = []
     delete_indices = []
     for g in np.unique(group_ids):
+        seg_type = None
         segment_idx = np.where(group_ids == g)[0]
+        if len(segment_idx) == 0:
+            continue
         seg_type = types[segment_idx[0]]
 
         if seg_type == 1:
@@ -411,7 +441,7 @@ def add_retracements(ohlc: pd.DataFrame, swing_highs_lows: pd.DataFrame, only_sw
                     ),
                     current_retracement.iloc[i],
                 )
-            if direction.iloc[i - 1] == -1:
+            elif direction.iloc[i - 1] == -1:
                 current_retracement.iloc[i] = round(
                     100 - ((top_current - top_previous) / (bottom_current - top_previous)) * 100, 1
                 )
@@ -424,6 +454,9 @@ def add_retracements(ohlc: pd.DataFrame, swing_highs_lows: pd.DataFrame, only_sw
                     ),
                     current_retracement.iloc[i],
                 )
+            else:
+                current_retracement.iloc[i] = 0.0
+                deepest_retracement.iloc[i] = 0.0
 
     #direction = pd.Series(direction, name="Direction")
     current_retracement = pd.Series(current_retracement, name="CurrentRetracement")

@@ -96,7 +96,7 @@ class StructureTrendPlotter:
         
         fig.update_traces(hoverinfo="text", hovertext=df['hover_text'])
 
-        fig.update_yaxes(visible=True, showticklabels=True, dtick=0.005)
+        fig.update_yaxes(visible=True, showticklabels=True, dtick=0.005 if df['Close'].max() < 1 else None)
         return fig
 
     def standardize_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -450,7 +450,7 @@ class StructureTrendPlotter:
         """
         Chart: Market Structure Detection - Matching BOS/CHOCH chart style
         """
-        print(type(events))
+
         # Standardize and copy DataFrame
         df_std = self.standardize_dataframe(df)
 
@@ -472,6 +472,9 @@ class StructureTrendPlotter:
             timestamp = struct_point.Index
             price = float(struct_point.Level)
             retracement = float(struct_point.Retracement)
+            
+            if struct_type not in structure_counts:
+                continue  # Skip unknown structure types
             
             structure_counts[struct_type] += 1
             
@@ -600,7 +603,7 @@ class StructureTrendPlotter:
         
         len_of_df = len(df_std)
         relative_x_pos = int(len_of_df * 0.1)
-        print(relative_x_pos)
+
         fig.add_annotation(
             x=date_to_num[df_std.index[relative_x_pos]],
             y=df_std['High'].max(), #if df_std['High'][-1] < 0.8 * df_std['High'].max() else 0.7 * df_std['High'].max(),
