@@ -15,6 +15,8 @@ class SwingType(Enum):
 class EventType(Enum):
     BOS = "BOS"
     CHOCH = "CHOCH"
+    fakeBOS = "fakeBOS"
+    fakeCHOCH = "fakeCHOCH"
 
 class StructureType(Enum):
     SUPPORT = "Support"
@@ -37,7 +39,7 @@ class MarketEvent:
     direction: Literal["Bullish", "Bearish"]
     timestamp: pd.Timestamp
     price: float
-    confidence: float
+    # confidence: float
     broken_level: Dict
     context: Dict
     description: str
@@ -221,13 +223,19 @@ class MarketStructureAnalyzer:
             base_confidence += 0.2
         elif price_break < 10:  # Weak break
             base_confidence -= 0.2
+
+        if broken_level.retracement_structure > 50.0:
+            base_confidence += 0.2
+        else:
+            base_confidence -= 0.2
+
         
         # Time factor - more recent breaks are more reliable
-        time_diff = (current_point.timestamp - broken_level.timestamp).total_seconds() / 3600  # hours
-        if time_diff < 24:  # Within 24 hours
-            base_confidence += 0.1
-        elif time_diff > 168:  # More than a week
-            base_confidence -= 0.1
+        # time_diff = (current_point.timestamp - broken_level.timestamp).total_seconds() / 3600  # hours
+        # if time_diff < 24:  # Within 24 hours
+        #     base_confidence += 0.1
+        # elif time_diff > 168:  # More than a week
+        #     base_confidence -= 0.1
         
         # Structure integrity and quality check
         if intermediate_point:
@@ -279,8 +287,8 @@ class MarketStructureAnalyzer:
             quality_score += 1
         if intermediate_point and abs(intermediate_point.price - broken_level.price) > price_break * 0.3:  # Deep retracement
             quality_score += 1
-        if time_diff < 48:  # Recent event
-            quality_score += 1
+        # if time_diff < 48:  # Recent event
+        #     quality_score += 1
         
         # Normalize quality score (0-4 scale)
         normalized_quality = quality_score / 4.0
@@ -295,8 +303,8 @@ class MarketStructureAnalyzer:
             return False
         
         # Comprehensive structure width validation (price + time)
-        if not self._validate_structure_width(current, previous_extreme, intermediate):
-            return False  # Structure too narrow in price or time
+        # if not self._validate_structure_width(current, previous_extreme, intermediate):
+        #     return False  # Structure too narrow in price or time
         
         # Validate price relationships
         if current.swing_type == SwingType.HH:
@@ -491,7 +499,7 @@ class MarketStructureAnalyzer:
                 point.retracement_structure = point.retracement
                 continue
 
-            print(f"Analyzing retracement for point at index {i}: {point.swing_type} @ {point.price:.5f}")  # Debug print
+            # print(f"Analyzing retracement for point at index {i}: {point.swing_type} @ {point.price:.5f}")  # Debug print
             if structure.index(last_support) < structure.index(last_resistance):
                 point.retracement_structure = round(100 - ((point.price - last_support.price) / 
                                                     (last_resistance.price - last_support.price)) * 100, 1)
@@ -504,9 +512,91 @@ class MarketStructureAnalyzer:
                 last_support = point
             elif point.structure_type == StructureType.RESISTANCE:
                 last_resistance = point
-            
 
-    def analyse_market_events(self, structure_data: pd.DataFrame) -> List[MarketEvent]:
+    def enforce_alternating_swings(self, structure: List[StructurePoint]) -> List[StructurePoint]:
+        """
+        Ensure that swing highs and lows alternate (1 → -1 → 1 → ...).
+        If multiple consecutive highs or lows appear, only the most extreme one is kept.
+        
+        Works vectorized for performance.
+        """
+
+        levels = np.array([swing.price for swing in structure])
+        types = np.array([1 if swing.swing_type.value in ("HH", "LH") else -1 for swing in structure])
+
+
+        if len(types) == 0:
+            print("No swing points detected.")
+            return structure
+
+        # Identify indices where the swing type changes (1 → -1 or -1 → 1)
+        change_mask = np.concatenate(([True], types[1:] != types[:-1]))
+
+        # Group consecutive segments of same type
+        group_ids = np.cumsum(change_mask) - 1
+
+        # Aggregate per segment: choose the most extreme level
+        # keep_indices = []
+        delete_indices = []
+        for g in np.unique(group_ids):
+            seg_type = None
+            segment_idx = np.where(group_ids == g)[0]
+            if len(segment_idx) == 0:
+                continue
+            seg_type = types[segment_idx[0]]
+
+            if seg_type == 1:
+                # For highs: keep the highest price
+                best_idx = segment_idx[np.argmax(levels[segment_idx])]
+                delete_indices.extend(idx for idx in segment_idx if idx != best_idx)
+            else:
+                # For lows: keep the lowest price
+                best_idx = segment_idx[np.argmin(levels[segment_idx])]
+                delete_indices.extend(idx for idx in segment_idx if idx != best_idx)
+            # keep_indices.append(best_idx)
+
+        return [point for point in structure if structure.index(point) not in delete_indices]
+    
+    def _find_break_level(
+        self,
+        start_point: StructurePoint,
+        end_point: StructurePoint,
+        ohlc: pd.DataFrame,
+        break_direction: int
+    ) -> Optional[pd.Timestamp]:
+        """
+        Findet den Timestamp der Kerze, die mit ihrem Close über/unter das Start-Level bricht.
+        
+        break_direction: 
+            +1 => Bullish Break (Close > Level)
+            -1 => Bearish Break (Close < Level)
+        """
+        start_idx = ohlc.index.get_loc(start_point.timestamp)
+        end_idx = ohlc.index.get_loc(end_point.timestamp)
+
+        # Begrenze den zu prüfenden Bereich (inklusiv)
+        ohlc_slice = ohlc.iloc[start_idx:end_idx + 1] # type: ignore
+
+        # Level, das gebrochen werden soll
+        level = start_point.price
+
+        if break_direction == 1:
+            # Bullish Break: Close > Level
+            broken = ohlc_slice[ohlc_slice['High'] > level]
+        elif break_direction == -1:
+            # Bearish Break: Close < Level
+            broken = ohlc_slice[ohlc_slice['Low'] < level]
+        else:
+            raise ValueError("break_direction must be +1 or -1")
+
+        if not broken.empty:
+            # Ersten Bruch-Zeitpunkt zurückgeben
+            return broken.index[0]
+        else:
+            # Kein Bruch gefunden
+            return None
+
+    def analyse_market_events(self, structure_data: pd.DataFrame, ohlc: pd.DataFrame = None) -> List[MarketEvent]:
         """Enhanced market event detection with improved pattern recognition"""
         if len(structure_data) < 4:
             return []
@@ -519,10 +609,15 @@ class MarketStructureAnalyzer:
         
         self._qualify_structure(structure)
         self._analyse_retracement(structure)
-        
+
+        extern_structure = [point for point in structure if not point.structure_type==StructureType.NONE]
+        structure_temp = structure
+        structure = extern_structure
+
+        extern_structure = self.enforce_alternating_swings(extern_structure)
         events = []
 
-        for i in range(2, len(structure)):  # Start from index 2 for better pattern validation
+        for i in range(0, len(structure)):  # Start from index 2 for better pattern validation
             current = structure[i]
             trend_before = self._get_trend_state_window(structure, i) 
             
@@ -537,61 +632,65 @@ class MarketStructureAnalyzer:
                 # Any lower swing breaking previous support in uptrend = CHOCH
                 if current.swing_type == SwingType.LL:
                     # Find the most recent HL (support level in uptrend)
-                    last_hl = self._find_last_strong_swing(structure, SwingType.HL, i)
+                    last_hl = self._find_last_structure_level(structure, StructureType.SUPPORT, i)
                     if last_hl and current.price < last_hl.price:
                         print(f"Potential Bearish CHOCH at Index {i}: {current.swing_type.value} @ {current.price:.5f} breaking HL @ {last_hl.price:.5f}")  # Debug print
                         # This is a CHOCH - trend change from bullish to bearish
                         qml_level = self._find_last_swing(structure, SwingType.HH, i)
+                        print(f"QML:", qml_level)
                         if qml_level:
-                            confidence, quality_score = self._calculate_confidence(current, last_hl, qml_level, EventType.CHOCH)
-                            dynamic_threshold = self._get_dynamic_choch_threshold(current, last_hl, trend_before)
-                            if confidence >= dynamic_threshold:  # Dynamic threshold for CHOCH
-                                events.append(MarketEvent(
-                                    event_type=EventType.CHOCH,
-                                    direction="Bearish",
-                                    timestamp=current.timestamp,
-                                    price=current.price,
-                                    confidence=confidence,
-                                    broken_level={"name": "SBR", "timestamp": last_hl.timestamp, "price": last_hl.price},
-                                    context={
-                                        "a_plus_entry": {"name": "QML", "timestamp": qml_level.timestamp, "price": qml_level.price},
-                                        "quality_score": quality_score,
-                                        "structure_width": abs(qml_level.price - last_hl.price)
-                                    },
-                                    description=f"Bearish CHOCH: {current.swing_type.value} @ {current.price:.5f} broke uptrend support @ {last_hl.price:.2f}"
-                                ))
-                                choch_detected = True
-                                print(f"CHOCH Detected at Index {i}: {current.swing_type.value} @ {current.price:.5f}")  # Debug print
+                            # confidence, quality_score = self._calculate_confidence(current, last_hl, qml_level, EventType.CHOCH)
+                            # dynamic_threshold = self._get_dynamic_choch_threshold(current, last_hl, trend_before)
+                            # if confidence >= dynamic_threshold:  # Dynamic threshold for CHOCH
+                            broken_time = self._find_break_level(last_hl, current, ohlc, -1)
+                            events.append(MarketEvent(
+                                event_type=EventType.CHOCH,
+                                direction="Bearish",
+                                timestamp=broken_time,
+                                price=current.price,
+                                # confidence=confidence,
+                                broken_level={"timestamp": last_hl.timestamp, "price": last_hl.price},
+                                context={
+                                    "a_plus_entry": {"name": "QML", "timestamp": qml_level.timestamp, "price": qml_level.price},
+                                    # "quality_score": quality_score,
+                                    "structure_width": abs(qml_level.price - last_hl.price)
+                                },
+                                description=f"Bearish CHOCH: {current.swing_type.value} @ {current.price:.5f} broke uptrend support @ {last_hl.price:.2f}"
+                            ))
+                            
+                            print(f"CHOCH Detected at Index {i}: {current.swing_type.value} @ {current.price:.5f}")  # Debug print
             
             elif trend_before == "downtrend":
                 # Any higher swing breaking previous resistance in downtrend = CHOCH  
                 if current.swing_type == SwingType.HH:
                     # Find the most recent LH (resistance level in downtrend)
-                    last_lh = self._find_last_strong_swing(structure, SwingType.LH, i)
+                    last_lh = self._find_last_structure_level(structure, StructureType.RESISTANCE, i)
                     if last_lh and current.price > last_lh.price:
                         print(f"Potential Bullish CHOCH at Index {i}: {current.swing_type.value} @ {current.price:.5f} breaking LH @ {last_lh.price:.5f}")  # Debug print
                         # This is a CHOCH - trend change from bearish to bullish
                         qml_level = self._find_last_swing(structure, SwingType.LL, i)
+                        print(f"QML:", qml_level)
                         if qml_level:
-                            confidence, quality_score = self._calculate_confidence(current, last_lh, qml_level, EventType.CHOCH)
-                            dynamic_threshold = self._get_dynamic_choch_threshold(current, last_lh, trend_before)
-                            if confidence >= dynamic_threshold:  # Dynamic threshold for CHOCH
-                                events.append(MarketEvent(
-                                    event_type=EventType.CHOCH,
-                                    direction="Bullish",
-                                    timestamp=current.timestamp,
-                                    price=current.price,
-                                    confidence=confidence,
-                                    broken_level={"name": "RBS", "timestamp": last_lh.timestamp, "price": last_lh.price},
-                                    context={
-                                        "a_plus_entry": {"name": "QML", "timestamp": qml_level.timestamp, "price": qml_level.price},
-                                        "quality_score": quality_score,
-                                        "structure_width": abs(qml_level.price - last_lh.price)
-                                    },
-                                    description=f"Bullish CHOCH: {current.swing_type.value} @ {current.price:.5f} broke downtrend resistance @ {last_lh.price:.2f}"
-                                ))
-                                choch_detected = True
-                                print(f"CHOCH Detected at Index {i}: {current.swing_type.value} @ {current.price:.5f}")  # Debug print
+                            # confidence, quality_score = self._calculate_confidence(current, last_lh, qml_level, EventType.CHOCH)
+                            # dynamic_threshold = self._get_dynamic_choch_threshold(current, last_lh, trend_before)
+                            # if confidence >= dynamic_threshold:  # Dynamic threshold for CHOCH
+                            broken_time = self._find_break_level(last_lh, current, ohlc, 1)
+                            events.append(MarketEvent(
+                                event_type=EventType.CHOCH,
+                                direction="Bullish",
+                                timestamp=broken_time,
+                                price=current.price,
+                                # confidence=confidence,
+                                broken_level={"timestamp": last_lh.timestamp, "price": last_lh.price},
+                                context={
+                                    "a_plus_entry": {"name": "QML", "timestamp": qml_level.timestamp, "price": qml_level.price},
+                                    # "quality_score": quality_score,
+                                    "structure_width": abs(qml_level.price - last_lh.price)
+                                },
+                                description=f"Bullish CHOCH: {current.swing_type.value} @ {current.price:.5f} broke downtrend resistance @ {last_lh.price:.2f}"
+                            ))
+                            choch_detected = True
+                            print(f"CHOCH Detected at Index {i}: {current.swing_type.value} @ {current.price:.5f}")  # Debug print
 
             # --- Enhanced BOS Detection (Only if no CHOCH detected) ---
             if not choch_detected and current.swing_type == SwingType.HH:
@@ -608,23 +707,24 @@ class MarketStructureAnalyzer:
                                 break
                         
                         if intermediate_low and self._validate_bos_pattern(current, prev_hh, intermediate_low):
-                            confidence, quality_score = self._calculate_confidence(current, prev_hh, intermediate_low, EventType.BOS)
-                            if confidence >= self.confidence_threshold:
-                                events.append(MarketEvent(
-                                    event_type=EventType.BOS,
-                                    direction="Bullish",
-                                    timestamp=current.timestamp,
-                                    price=current.price,
-                                    confidence=confidence,
-                                    broken_level={"name": "TJL1", "timestamp": prev_hh.timestamp, "price": prev_hh.price},
-                                    context={
-                                        "a_plus_entry": {"name": "TJL2", "timestamp": intermediate_low.timestamp, "price": intermediate_low.price},
-                                        "quality_score": quality_score,
-                                        "structure_width": abs(intermediate_low.price - prev_hh.price)
-                                    },
-                                    description=f"Bullish BOS: HH @ {current.price:.5f} broke previous HH @ {prev_hh.price:.5f}"
-                                ))
-                                break  # Only take the first valid BOS
+                            # confidence, quality_score = self._calculate_confidence(current, prev_hh, intermediate_low, EventType.BOS)
+                            # if confidence >= self.confidence_threshold:
+                            broken_time = self._find_break_level(prev_hh, current, ohlc, 1)
+                            events.append(MarketEvent(
+                                event_type=EventType.BOS,
+                                direction="Bullish",
+                                timestamp=broken_time,
+                                price=current.price,
+                                # confidence=confidence,
+                                broken_level={"timestamp": prev_hh.timestamp, "price": prev_hh.price},
+                                context={
+                                    "a_plus_entry": {"name": "TJL2", "timestamp": intermediate_low.timestamp, "price": intermediate_low.price},
+                                    # "quality_score": quality_score,
+                                    "structure_width": abs(intermediate_low.price - prev_hh.price)
+                                },
+                                description=f"Bullish BOS: HH @ {current.price:.5f} broke previous HH @ {prev_hh.price:.5f}"
+                            ))
+                            break  # Only take the first valid BOS
 
             elif not choch_detected and current.swing_type == SwingType.LL:
                 # Look for previous LL to break
@@ -640,23 +740,24 @@ class MarketStructureAnalyzer:
                                 break
                         
                         if intermediate_high and self._validate_bos_pattern(current, prev_ll, intermediate_high):
-                            confidence, quality_score = self._calculate_confidence(current, prev_ll, intermediate_high, EventType.BOS)
-                            if confidence >= self.confidence_threshold:
-                                events.append(MarketEvent(
-                                    event_type=EventType.BOS,
-                                    direction="Bearish",
-                                    timestamp=current.timestamp,
-                                    price=current.price,
-                                    confidence=confidence,
-                                    broken_level={"name": "TJL1", "timestamp": prev_ll.timestamp, "price": prev_ll.price},
-                                    context={
-                                        "a_plus_entry": {"name": "TJL2", "timestamp": intermediate_high.timestamp, "price": intermediate_high.price},
-                                        "quality_score": quality_score,
-                                        "structure_width": abs(intermediate_high.price - prev_ll.price)
-                                    },
-                                    description=f"Bearish BOS: LL @ {current.price:.5f} broke previous LL @ {prev_ll.price:.5f}"
-                                ))
-                                break  # Only take the first valid BOS
+                            # confidence, quality_score = self._calculate_confidence(current, prev_ll, intermediate_high, EventType.BOS)
+                            # if confidence >= self.confidence_threshold:
+                            broken_time = self._find_break_level(prev_ll, current, ohlc, -1)
+                            events.append(MarketEvent(
+                                event_type=EventType.BOS,
+                                direction="Bearish",
+                                timestamp=broken_time,
+                                price=current.price,
+                                # confidence=confidence,
+                                broken_level={"timestamp": prev_ll.timestamp, "price": prev_ll.price},
+                                context={
+                                    "a_plus_entry": {"name": "TJL2", "timestamp": intermediate_high.timestamp, "price": intermediate_high.price},
+                                    # "quality_score": quality_score,
+                                    "structure_width": abs(intermediate_high.price - prev_ll.price)
+                                },
+                                description=f"Bearish BOS: LL @ {current.price:.5f} broke previous LL @ {prev_ll.price:.5f}"
+                            ))
+                            break  # Only take the first valid BOS
 
         # Remove duplicate events that might occur at similar times/prices
         filtered_events = []
@@ -672,7 +773,9 @@ class MarketStructureAnalyzer:
             
             if not is_duplicate:
                 filtered_events.append(event)
-        return structure # for this commit only, so plotting will work
+
+        
+        return filtered_events, extern_structure, structure_temp # for this commit only, so plotting will work
         return filtered_events
 
     def get_market_events(self, structure_data: List[Dict]) -> List[MarketEvent]:

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from typing import List, Dict, Optional, Tuple
-from core.smart_money_concepts import StructurePoint
+from core.smart_money_concepts import StructurePoint, MarketEvent
 from core.structure_builder import build_market_structure, detect_swing_points_scipy, get_market_analysis
 from core.trend_detector import detect_swing_points, detect_trend, get_trend_from_data
 
@@ -18,7 +18,9 @@ class StructureTrendPlotter:
             ('HH', 'Bullish'): '#26a69a', ('HH', 'Bearish'): '#ef5350',
             ('HL', 'Bullish'): '#2196F3', ('HL', 'Bearish'): '#FFA726',
             ('LH', 'Bullish'): '#9C27B0', ('LH', 'Bearish'): '#FF5722',
-            ('LL', 'Bullish'): '#4CAF50', ('LL', 'Bearish'): '#F44336'
+            ('LL', 'Bullish'): '#4CAF50', ('LL', 'Bearish'): '#F44336',
+            ('BOS', 'Bullish'): '#26a69a', ('BOS', 'Bearish'): '#ef5350',
+            ('CHOCH', 'Bullish'): '#2196F3', ('CHOCH', 'Bearish'): '#FFA726',
         }
         
         self.trend_colors = {
@@ -35,6 +37,42 @@ class StructureTrendPlotter:
             'LL': 5,
             'Swing': 3
         }
+
+    def _add_structure_break_line(self, fig: go.Figure, event, df: pd.DataFrame):
+        """Add dotted line showing structure break from broken level to break point"""
+        broken_level = event.broken_level
+        color = self.color_scheme.get((event.event_type.value, event.direction), 'grey')
+        
+        # Create dotted line from broken level to break point
+        fig.add_trace(go.Scatter(
+            x=[broken_level['timestamp'], event.timestamp],
+            y=[broken_level['price'], event.price],
+            mode='lines',
+            line=dict(
+                color=color,
+                width=2,
+                dash='dot'
+            ),
+            name=f"{event.event_type.value} Break Line",
+            hoverinfo='skip',
+            showlegend=False
+        ))
+        
+        # Add a small circle at the broken level point
+        fig.add_trace(go.Scatter(
+            x=[broken_level['timestamp']],
+            y=[broken_level['price']],
+            mode='markers',
+            marker=dict(
+                symbol='circle-open',
+                size=8,
+                color=color,
+                line=dict(width=2, color=color)
+            ),
+            name=f"Broken {broken_level['name']}",
+            hoverinfo='skip',
+            showlegend=False
+        ))
 
     def _create_base_chart(self, df: pd.DataFrame, title: str, symbol: str) -> go.Figure:
         """Creates the base candlestick figure - Matching level_plotter.py style"""
@@ -445,7 +483,7 @@ class StructureTrendPlotter:
         
         return fig
 
-    def plot_structure(self, df: pd.DataFrame, structure: pd.DataFrame, events: List[StructurePoint] | None = None, symbol: str = "SYMBOL", timeframe: str = "15Min",
+    def plot_structure(self, df: pd.DataFrame, structure: List[StructurePoint], events: List[MarketEvent], symbol: str = "SYMBOL", timeframe: str = "15Min",
                        show_labels: bool = False) -> go.Figure:
         """
         Chart: Market Structure Detection - Matching BOS/CHOCH chart style
@@ -461,20 +499,22 @@ class StructureTrendPlotter:
         fig = self._create_base_chart(df_std, f"{symbol} {timeframe} - Market Structure Analysis (HH/HL/LH/LL)", symbol)
         date_to_num = dict(zip(df_std.index, df_std["numeric_index"]))
         num_to_date = dict(zip(df_std["numeric_index"], df_std.index))
-        sp_by_timestamp = {sp.timestamp: sp for sp in events } if events is not None else {}
+        sp_by_timestamp = {sp.timestamp: sp for sp in structure } if structure is not None else {}
 
 
         # Process structure points with BOS/CHOCH styling
         structure_counts = {'HH': 0, 'HL': 0, 'LH': 0, 'LL': 0}
 
-        for i, struct_point in enumerate(structure.itertuples()):
-            struct_type = struct_point.Classification
-            timestamp = struct_point.Index
-            price = float(struct_point.Level)
-            retracement = float(struct_point.Retracement)
+        for i, struct_point in enumerate(structure):
+            struct_type = struct_point.swing_type.value
+            timestamp = struct_point.timestamp
+            price = float(struct_point.price)
+            retracement = float(struct_point.retracement)
             
             if struct_type not in structure_counts:
                 continue  # Skip unknown structure types
+            if timestamp not in sp_by_timestamp:
+                continue 
             
             structure_counts[struct_type] += 1
             
@@ -522,7 +562,8 @@ class StructureTrendPlotter:
                              f"Structure Type: {sp_by_timestamp[timestamp].structure_type.value if events is not None else 'Missing events'} <br>" + # type: ignore
                              f"Strong: {sp_by_timestamp[timestamp].strong if events is not None else 'Missing events'} <br>" +
                              f"<i>{self._get_structure_description(struct_type)}</i><extra></extra>",
-                showlegend=False
+                showlegend=False,
+                legendgroup='structure_points'
             ))
             
             if show_labels:
@@ -543,22 +584,21 @@ class StructureTrendPlotter:
                     borderwidth=1
                 )
             
-            # Connect structure points of same type with lines
-            # if i > 0:
-            #     # Find previous structure point of same type
-            #     prev_same_type = None
-            #     for j in range(i-1, -1, -1):
-            #         if structure[j]['type'] == struct_type:
-            #             prev_same_type = structure[j]
-            #             break
-                
-            #     if prev_same_type:
-            #         self._add_swing_break_line(
-            #             fig,
-            #             {'timestamp': prev_same_type['timestamp'], 'price': prev_same_type['price']},
-            #             {'timestamp': timestamp, 'price': price},
-            #             color
-            #         )
+        fig.add_trace(go.Scatter(
+            x=[None],
+            y=[None],
+            mode='markers',
+            marker=dict(
+                    symbol='diamond-tall', 
+                    size=7, 
+                    color=color, 
+                    line=dict(width=2, color='white')
+                ),
+            # line=dict(color='#9C27B0', width=1),
+            name='Structure Points',
+            legendgroup='structure_points',
+            showlegend=True
+        ))
 
         # Add trend background
         # trend_color = self.trend_colors.get(trend, '#9E9E9E')
@@ -571,13 +611,51 @@ class StructureTrendPlotter:
         #     line_width=0,
         # )
 
+        for event in events:            
+            # Add structure break line
+            broken_level = event.broken_level
+            color = self.color_scheme.get((event.event_type.value, event.direction), 'grey')
+            
+            # Create dotted line from broken level to break point
+            x_vals = [
+                date_to_num[broken_level['timestamp']],
+                (date_to_num[broken_level['timestamp']] + date_to_num[event.timestamp]) // 2,
+                date_to_num[event.timestamp]
+            ]
+            y_vals = [broken_level['price']] * 3
+
+            fig.add_trace(go.Scatter(
+                x=x_vals,
+                y=y_vals,
+                mode='lines+text',
+                line=dict(color=color, width=1, dash='dot'),
+                text=["", f"{event.event_type.value}", ""],  # Text nur beim mittleren Punkt
+                textposition='top center',
+                textfont=dict(color=color, size=10),
+                hoverinfo='skip',
+                legendgroup='break_lines',
+                showlegend=False
+            ))
+
+
+        fig.add_trace(go.Scatter(
+            x=[None],
+            y=[None],
+            mode='lines',
+            line=dict(color='grey', width=1, dash='dot'),
+            name='Break Lines',
+            legendgroup='break_lines',
+            showlegend=True
+        ))
+            
+
         # Filter only rows with valid HighLow
-        swings = structure.dropna(subset=['HighLow', 'Level'])
+        swings = structure #.dropna(subset=['HighLow', 'Level'])
 
         # Use the datetime index of the swings directly
-        swing_dates = swings.index
-        swing_levels = swings['Level'].values
-        swing_types = swings['HighLow'].values
+        swing_dates = [swing.timestamp for swing in swings]
+        swing_levels = [swing.price for swing in swings]
+        swing_types = [1 if swing.swing_type.value in ("HH", "LH") else -1 for swing in swings]
 
         # Draw lines between consecutive swings
         for i in range(len(swings) - 1):
@@ -592,17 +670,27 @@ class StructureTrendPlotter:
                         width=2
                     ),
                     showlegend=False,
+                    legendgroup='structure_lines',
                     customdata=[swing_dates[i]],
                     hovertemplate="X: %{customdata}, Y: %{y}<extra></extra>",
                 )
         )
+        fig.add_trace(go.Scatter(
+            x=[None],
+            y=[None],
+            mode='lines',
+            line=dict(color='green', width=1),
+            name='Structure Lines',
+            legendgroup='structure_lines',
+            showlegend=True
+        ))
         
         # Add structure summary annotation
         total_points = sum(structure_counts.values())
         bullish_bias = ((structure_counts['HH'] + structure_counts['HL']) / total_points * 100) if total_points > 0 else 0
         
         len_of_df = len(df_std)
-        relative_x_pos = int(len_of_df * 0.1)
+        relative_x_pos = int(len_of_df * 0.9)
 
         fig.add_annotation(
             x=date_to_num[df_std.index[relative_x_pos]],
