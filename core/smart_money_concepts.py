@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from typing import List, Dict, Literal, Optional, Tuple
 from dataclasses import dataclass
@@ -27,7 +28,8 @@ class StructurePoint:
     swing_type: SwingType
     structure_type: StructureType = StructureType.NONE
     strong: bool = False 
-    retracement: Optional[float] = None  # Optional retracement value
+    retracement: float = np.nan  # Optional retracement value
+    retracement_structure: Optional[float] = np.nan  # Optional retracement structure type
 
 @dataclass
 class MarketEvent:
@@ -472,6 +474,37 @@ class MarketStructureAnalyzer:
                         last_resistance = point
                         point.structure_type = StructureType.RESISTANCE
 
+    def _analyse_retracement(self, structure: List[StructurePoint]):
+        """Analyse retracement levels for each structure point"""
+        last_support = None
+        last_resistance = None
+        for i, point in enumerate(structure):
+            if last_support is None and point.structure_type == StructureType.SUPPORT:
+                last_support = point
+                point.retracement_structure = point.retracement
+                continue
+            elif last_resistance is None and point.structure_type == StructureType.RESISTANCE:
+                last_resistance = point
+                point.retracement_structure = point.retracement
+                continue
+            elif last_support is None or last_resistance is None:
+                point.retracement_structure = point.retracement
+                continue
+
+            print(f"Analyzing retracement for point at index {i}: {point.swing_type} @ {point.price:.5f}")  # Debug print
+            if structure.index(last_support) < structure.index(last_resistance):
+                point.retracement_structure = round(100 - ((point.price - last_support.price) / 
+                                                    (last_resistance.price - last_support.price)) * 100, 1)
+                
+            elif structure.index(last_support) > structure.index(last_resistance):
+                point.retracement_structure = round(100 - ((point.price - last_resistance.price) / 
+                                                    (last_support.price - last_resistance.price)) * 100, 1)
+
+            if point.structure_type == StructureType.SUPPORT:
+                last_support = point
+            elif point.structure_type == StructureType.RESISTANCE:
+                last_resistance = point
+            
 
     def analyse_market_events(self, structure_data: pd.DataFrame) -> List[MarketEvent]:
         """Enhanced market event detection with improved pattern recognition"""
@@ -485,6 +518,7 @@ class MarketStructureAnalyzer:
                     for row in structure_data.itertuples()]
         
         self._qualify_structure(structure)
+        self._analyse_retracement(structure)
         
         events = []
 
